@@ -13,6 +13,7 @@ kinogaki-exr-format/format test a_frame_writes_a_part_an_output_and_reads_back_a
 kinogaki-exr-format/format test one_part_of_named_layers_reads_back_alike
 kinogaki-exr-format/format test openexr_images_read_as_openexr_reads_them
 kinogaki-exr-format/format test parts_of_other_windows_join_and_the_workers_never_change_a_read
+kinogaki-exr-format/format test psyops_cryptomatte_files_write_back_as_they_read
 kinogaki-exr-format/hostile test a_cut_zip_chunk_fails_at_its_end
 kinogaki-exr-format/hostile test a_hundred_thousand_attributes_read_in_linear_time
 kinogaki-exr-format/hostile test a_part_past_the_budget_is_refused_before_its_planes
@@ -30,6 +31,7 @@ kinogaki-exr-format/lib test exr::compression::zip::tests::predict_round_trips
 kinogaki-exr-format/lib test exr::cryptomatte::hash::tests::specification_vectors
 kinogaki-exr-format/lib test exr::cryptomatte::manifest::tests::escapes_and_surrogates_round_trip
 kinogaki-exr-format/lib test exr::cryptomatte::manifest::tests::malformed_manifests_are_refused
+kinogaki-exr-format/lib test metadata::tests::names_an_attributes_cant_be_are_held_and_given_back
 kinogaki-exr-format/openexr test bad_files_fail_cleanly
 kinogaki-exr-format/openexr test every_compression_round_trips_scanline_and_tiled
 kinogaki-exr-format/openexr test files_openexr_wrote_read_exactly

@@ -379,6 +379,57 @@ fn a_cryptomatte_sidecar_is_read_beside_its_file_and_said_missing_in_memory() {
 }
 
 #[test]
+fn psyops_cryptomatte_files_write_back_as_they_read() {
+    let outputs = [
+        ("multichannel", "crypto_object"),
+        ("special_chars", "special_chars"),
+        ("sidecar_manifest", "crypto_asset"),
+    ];
+    for (name, output) in outputs {
+        let path = fixtures().join(format!("cryptomatte/{name}.exr"));
+        let (read, warnings) = image(&Input::file(&path));
+        // Every attribute held, its name spaces and all.
+        assert!(warnings.is_empty(), "{name}: {warnings:?}");
+        for parts in ["layers", "one"] {
+            let bytes = written(&read, parts);
+            let (back, warnings) = image(&Input::memory("back.exr", &bytes));
+            assert!(warnings.is_empty(), "{name}, {parts}: {warnings:?}");
+            // The same layers; an EXR orders its channels by name.
+            let sorted = |image: &Image| {
+                let mut layers = image.layers().to_vec();
+                layers.sort_by(|a, b| a.format().name.cmp(&b.format().name));
+                layers
+            };
+            assert_eq!(sorted(&back), sorted(&read), "{name}, {parts}");
+            for (domain, attribute, value) in read.attributes().iter() {
+                let held = back.attributes().get(domain, attribute);
+                // A one-part file's header names no part; written as
+                // parts, it does. A sidecar's manifest is written in the
+                // file.
+                let renamed = parts == "layers" && attribute == "name";
+                let inline = attribute.ends_with("/manif_file");
+                let same = renamed || inline || held == Some(value);
+                assert!(same, "{name}, {parts}: {attribute}");
+            }
+        }
+        // The preview and the ranks of an output are one part.
+        let file = exr::read(&written(&read, "layers"), &Default::default()).unwrap();
+        let part = (file.parts.iter())
+            .find(|p| p.header.name.as_deref() == Some(output))
+            .unwrap();
+        let channels: Vec<&str> = part.channels.iter().map(|c| &*c.name).collect();
+        for layer in [format!("{output}."), format!("{output}00.")] {
+            assert!(
+                channels.iter().any(|c| c.starts_with(&layer)),
+                "{channels:?}"
+            );
+        }
+        let primary = "ColorSpace/Blue Primary";
+        assert!(file.parts[0].header.attribute(primary).is_some(), "{name}");
+    }
+}
+
+#[test]
 fn a_damaged_or_truncated_file_is_an_error_naming_it() {
     let bytes = written(&frame(), "layers");
     for cut in [0, 4, 100, bytes.len() / 2, bytes.len() - 1] {

@@ -12,14 +12,16 @@
 //!   `chromaticities`, its tag), or, in a file saying none, when its
 //!   channels are `R G B A` or `Y`; Cryptomatte ranks and integers are
 //!   data. Every attribute is the Image's metadata (a later part's
-//!   differing one under `<part>/<name>`), and a Cryptomatte sidecar
-//!   manifest is read in as its `manifest`.
+//!   differing one under `<part>/<name>`, a name an attribute's can't be
+//!   escaped), and a Cryptomatte sidecar manifest is read in as its
+//!   `manifest`.
 //! - **Writing.** A part a layer (option `parts`, `layers`) named by its
-//!   output, a Cryptomatte output's ranks one part with its four keys, or
-//!   one part of `<layer>.<name>` channels (`one`); every part compressed
-//!   as `compression` says (ZIP by default). A color layer's part carries
-//!   its tag (`colorspace`, the Image's `chromaticities`), the first part
-//!   the rest of the metadata.
+//!   output, a Cryptomatte output's preview and ranks one part with its
+//!   four keys, or one part of `<layer>.<name>` channels (`one`); every
+//!   part compressed as `compression` says (ZIP by default). A color
+//!   layer's part carries its tag (`colorspace`, the Image's
+//!   `chromaticities`), the first part the rest of the metadata, each
+//!   attribute under the name it was read by.
 pub mod exr;
 mod metadata;
 mod read;

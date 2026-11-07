@@ -98,8 +98,9 @@ impl FormatWriter for Writer {
     }
 }
 
-/// `image` as an EXR's parts: a part a layer (a Cryptomatte output's ranks
-/// one part), or `one` part of them all, each `compression`.
+/// `image` as an EXR's parts: a part a layer (a Cryptomatte output's
+/// preview and ranks one part), or `one` part of them all, each
+/// `compression`.
 fn file(
     image: &Image,
     compression: Compression,
@@ -163,12 +164,14 @@ fn file(
     Ok(Exr { parts })
 }
 
-/// The Cryptomatte output layer `name` is one of: its name less two digits,
-/// when the image's metadata names that output.
+/// The Cryptomatte output layer `name` is one of, when the image's metadata
+/// names that output: its preview (named as the output), or a rank (its
+/// name less two digits).
 fn cryptomatte_of<'a>(image: &Image, name: &'a str) -> Option<&'a str> {
-    let output = name.strip_suffix(|c: char| c.is_ascii_digit())?;
-    let output = output.strip_suffix(|c: char| c.is_ascii_digit())?;
-    text(image, &cryptomatte::metadata(output, "name")).map(|_| output)
+    let named = |output| text(image, &cryptomatte::metadata(output, "name")).map(|_| output);
+    let rank = (name.strip_suffix(|c: char| c.is_ascii_digit()))
+        .and_then(|n| n.strip_suffix(|c: char| c.is_ascii_digit()));
+    named(name).or_else(|| named(rank?))
 }
 
 /// The image's metadata text `name`.

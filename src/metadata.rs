@@ -4,18 +4,21 @@ use crate::exr::cryptomatte::{MAX_SIDECAR, check_sidecar};
 use crate::exr::{Attribute as Raw, Exr, Header};
 use kinogaki_studio_api::format::files::Named;
 use kinogaki_studio_api::geometry::image::metadata::{CHROMATICITIES, PIXELATED};
-use kinogaki_studio_api::geometry::{Attribute, Attributes, Domain, Meaning, Text, Tuple};
+use kinogaki_studio_api::geometry::{
+    Attribute, Attributes, Domain, Meaning, Text, Tuple, check_name,
+};
 use kinogaki_studio_api::{Diagnostic, Error};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Every attribute of `file`'s parts as Detail attributes: the first part's by their names, a later part's by its name too unless
-/// an earlier one holds another value there, then as `<part>/<name>`. A
+/// an earlier one holds another value there, then as `<part>/<name>`; a
+/// name an attribute's can't be held as [`held_name`] says. A
 /// Cryptomatte manifest kept in a sidecar file (`manif_file`) is read
 /// through `named` as its `manifest`, each file once and 64 MiB of them in
-/// all. Attributes no metadata can hold (a preview image, a list of texts,
-/// a name of characters an attribute's can't have) are left out, said once.
+/// all. Attributes no metadata can hold (a preview image, a list of texts)
+/// are left out, said once.
 pub(crate) fn read(
     file: &Exr,
     named: &Named,
@@ -30,14 +33,14 @@ pub(crate) fn read(
                 left_out.push(raw.name.clone());
                 continue;
             };
-            let name = match held.get(Domain::Detail, &raw.name) {
-                None => raw.name.clone(),
+            let name = match held.get(Domain::Detail, &held_name(&raw.name)) {
+                None => held_name(&raw.name),
                 Some(same) if *same == value => continue,
-                Some(_) => format!(
+                Some(_) => held_name(&format!(
                     "{}/{}",
                     part.header.name.as_deref().unwrap_or("part"),
                     raw.name
-                ),
+                )),
             };
             if held.set(Domain::Detail, &name, value).is_err() {
                 left_out.push(raw.name.clone());
@@ -129,6 +132,61 @@ impl Sidecars {
         self.read.insert(path, text.clone());
         Ok(Some(text))
     }
+}
+
+/// Header attribute name `raw` as metadata names it: itself when an
+/// attribute's name may be it and holds no `:`; else `_`, then `raw` with
+/// each character an attribute's name can't hold where it is, and each
+/// `:`, as `:` and its bytes in hex (`ColorSpace/Blue Primary` is
+/// `_ColorSpace/Blue:20Primary`, `2d` is `_:32d`). [`raw_name`] gives it
+/// back.
+fn held_name(raw: &str) -> String {
+    if check_name(raw).is_ok() && !raw.contains(':') {
+        return raw.to_owned();
+    }
+    let mut held = String::from("_");
+    for (at, c) in raw.chars().enumerate() {
+        let kept = match at {
+            0 => c.is_alphabetic() || matches!(c, '_' | '.'),
+            _ => c.is_alphanumeric() || matches!(c, '_' | '.' | '-' | '/'),
+        };
+        match kept {
+            true => held.push(c),
+            false => {
+                for byte in c.encode_utf8(&mut [0; 4]).bytes() {
+                    held.push_str(&format!(":{byte:02X}"));
+                }
+            }
+        }
+    }
+    held
+}
+
+/// The header attribute name metadata `name` holds ([`held_name`]'s
+/// inverse): `name` itself unless it holds a `:`.
+fn raw_name(name: &str) -> String {
+    let Some(escaped) = name.strip_prefix('_').filter(|_| name.contains(':')) else {
+        return name.to_owned();
+    };
+    let text = escaped.as_bytes();
+    let mut bytes = Vec::with_capacity(text.len());
+    let mut at = 0;
+    while at < text.len() {
+        let hex = (text.get(at + 1..at + 3))
+            .filter(|_| text[at] == b':')
+            .and_then(|h| u8::from_str_radix(std::str::from_utf8(h).ok()?, 16).ok());
+        match hex {
+            Some(byte) => {
+                bytes.push(byte);
+                at += 3;
+            }
+            None => {
+                bytes.push(text[at]);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// `raw` as an attribute, when one can hold it.
@@ -230,7 +288,7 @@ pub(crate) fn write(metadata: &Attributes, header: &mut Header, warnings: &mut V
         }
         match raw(metadata, name, attribute) {
             Some((kind, value)) => header.set_attribute(Raw {
-                name: name.to_owned(),
+                name: raw_name(name),
                 kind: kind.to_owned(),
                 value,
             }),
@@ -275,4 +333,32 @@ fn raw(
     found
         .into_iter()
         .find_map(|(kind, bytes)| Some((kind, bytes?)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_an_attributes_cant_be_are_held_and_given_back() {
+        let raws = [
+            "ColorSpace/Blue Primary",
+            "2d",
+            "a:b",
+            "_:3A",
+            "x (y)",
+            "π r²",
+            "owner",
+        ];
+        for raw in raws {
+            let held = held_name(raw);
+            assert!(check_name(&held).is_ok(), "{held}");
+            assert_eq!(raw_name(&held), raw, "{held}");
+        }
+        assert_eq!(
+            held_name("ColorSpace/Blue Primary"),
+            "_ColorSpace/Blue:20Primary"
+        );
+        assert_eq!(held_name("owner"), "owner");
+    }
 }
