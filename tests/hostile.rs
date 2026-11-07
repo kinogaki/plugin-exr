@@ -221,7 +221,7 @@ fn a_cut_zip_chunk_fails_at_its_end() {
 
 #[test]
 fn a_part_past_the_budget_is_refused_before_its_planes() {
-    let bytes = scanline(16, ([0, 0], [4095, 4095]), 0, &[], 4096, &[]);
+    let bytes = scanline(16, ([0, 0], [4095, 4095]), 0, &[], 4096, &[0; 16]);
     let why = read_bytes(&bytes, small()).unwrap_err();
     assert!(why.message().contains("over the read's budget"), "{why}");
 }

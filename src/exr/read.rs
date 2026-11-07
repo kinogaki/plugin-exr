@@ -148,14 +148,17 @@ pub fn read(data: &[u8], options: &ReadOptions) -> Result<Exr, Error> {
             ));
         }
         let bytes = table.take(count.checked_mul(8).ok_or(Error::TooLarge)?)?;
-        offsets.push(
-            bytes
-                .as_chunks::<8>()
-                .0
-                .iter()
-                .map(|&b| u64::from_le_bytes(b))
-                .collect::<Vec<u64>>(),
-        );
+        let part: Vec<u64> = (bytes.as_chunks::<8>().0.iter())
+            .map(|&b| u64::from_le_bytes(b))
+            .collect();
+        // Every chunk's offset in the file before any part is allocated.
+        if let Some(&outside) = part.iter().find(|&&o| o == 0 || o >= data.len() as u64) {
+            return Err(Error::corrupt(
+                "chunk offset outside the file",
+                outside as usize,
+            ));
+        }
+        offsets.push(part);
     }
     let mut parts = Vec::with_capacity(structure.parts.len());
     for (index, (parsed, offsets)) in structure.parts.into_iter().zip(offsets).enumerate() {
