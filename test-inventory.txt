@@ -1,0 +1,29 @@
+# Every test of this repository: <package>/<target> <kind> <name>.
+# Written by `python3 tools/check_all.py --inventory`; every check compares its tests with it.
+kinogaki-exr-format/cryptomatte test a_built_layer_ranks_picks_and_extracts_across_ranks
+kinogaki-exr-format/cryptomatte test a_sidecar_that_climbs_out_is_refused
+kinogaki-exr-format/cryptomatte test bad_samples_are_refused
+kinogaki-exr-format/cryptomatte test files_and_sidecars_round_trip
+kinogaki-exr-format/cryptomatte test psyop_fixtures_match_openexr
+kinogaki-exr-format/doc test plugins/exr/src/exr/cryptomatte/mod.rs - exr::cryptomatte
+kinogaki-exr-format/doc test plugins/exr/src/exr/mod.rs - exr
+kinogaki-exr-format/format test a_cryptomatte_sidecar_is_read_beside_its_file_and_said_missing_in_memory
+kinogaki-exr-format/format test a_damaged_or_truncated_file_is_an_error_naming_it
+kinogaki-exr-format/format test a_frame_writes_a_part_an_output_and_reads_back_as_itself
+kinogaki-exr-format/format test one_part_of_named_layers_reads_back_alike
+kinogaki-exr-format/format test openexr_images_read_as_openexr_reads_them
+kinogaki-exr-format/format test parts_of_other_windows_join_and_the_workers_never_change_a_read
+kinogaki-exr-format/lib test exr::compression::piz::tests::huffman_round_trips_with_runs_and_long_codes
+kinogaki-exr-format/lib test exr::compression::piz::tests::wavelet_round_trips_in_both_ranges
+kinogaki-exr-format/lib test exr::compression::pxr24::tests::floats_round_to_24_bits
+kinogaki-exr-format/lib test exr::compression::pxr24::tests::halves_and_uints_are_lossless
+kinogaki-exr-format/lib test exr::compression::rle::tests::round_trips
+kinogaki-exr-format/lib test exr::compression::zip::tests::predict_round_trips
+kinogaki-exr-format/lib test exr::cryptomatte::hash::tests::specification_vectors
+kinogaki-exr-format/lib test exr::cryptomatte::manifest::tests::escapes_and_surrogates_round_trip
+kinogaki-exr-format/lib test exr::cryptomatte::manifest::tests::malformed_manifests_are_refused
+kinogaki-exr-format/openexr test bad_files_fail_cleanly
+kinogaki-exr-format/openexr test every_compression_round_trips_scanline_and_tiled
+kinogaki-exr-format/openexr test files_openexr_wrote_read_exactly
+kinogaki-exr-format/openexr test multipart_files_round_trip
+kinogaki-exr-format/openexr test windows_attributes_and_long_names_survive

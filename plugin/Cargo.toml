@@ -1,0 +1,24 @@
+[package]
+name = "kinogaki-plugin-exr"
+description = "OpenEXR as Studio's plugin formats/exr.dylib"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["dylib"]
+
+[lints]
+workspace = true
+
+# The library Studio loads. It links Studio's shared library, the plugin
+# kit's `kinogaki_shared`, so it builds in Studio's tree (whose workspace it
+# inherits) or against a release's kit; the format itself builds beside the
+# public SDK and lib-image alone.
+[dependencies]
+# The shared crates' one build: the package and its values cross as its types.
+kinogaki-shared.workspace = true
+kinogaki-studio-api.workspace = true
+kinogaki-exr-format.workspace = true

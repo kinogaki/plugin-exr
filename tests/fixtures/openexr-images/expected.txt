@@ -1,0 +1,21 @@
+AllHalfValues.exr part 0 0 255 255
+AllHalfValues.exr channel B half ba36b3170979df25
+AllHalfValues.exr channel G half ba36b3170979df25
+AllHalfValues.exr channel R half ba36b3170979df25
+ColorCodedLevels.exr error
+GrayRampsHorizontal.exr part 0 0 799 799
+GrayRampsHorizontal.exr channel Y half 4c12105a6ca25eed
+Rec709_YC.exr error
+WideColorGamut.exr part 0 0 799 799
+WideColorGamut.exr channel B half 1c0b35bbd7e1c64c
+WideColorGamut.exr channel G half fc1ab7e590a693d2
+WideColorGamut.exr channel R half 74c8d4bed86bc513
+stripes.exr part 0 0 99 49
+stripes.exr channel A half 1566869783cf0fa5
+stripes.exr channel B half b2b8bff1f23d474d
+stripes.exr channel G half b2b8bff1f23d474d
+stripes.exr channel R half b2b8bff1f23d474d
+t08.exr part 30 40 429 339
+t08.exr channel B half 0cc15089dfef40b1
+t08.exr channel G half e28cb3939a13daf5
+t08.exr channel R half 0655c7f92319e6a5
