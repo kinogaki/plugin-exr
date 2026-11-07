@@ -49,11 +49,14 @@ pub(crate) fn decode(shape: &Shape, data: &[u8]) -> Result<Vec<u8>, &'static str
         bitmap[min..=max].copy_from_slice(data.get(at..at + max - min + 1).ok_or(short)?);
         at += max - min + 1;
     }
-    // Dense numbers back to values: zero always, then each value present.
-    let mut lut = Vec::with_capacity(1024);
-    for value in 0..=u16::MAX {
-        if value == 0 || bitmap[usize::from(value >> 3)] & (1 << (value & 7)) != 0 {
-            lut.push(value);
+    // Dense numbers back to values: zero always, then each value present
+    // (looked for in the bitmap's range alone).
+    let mut lut = vec![0u16];
+    if min <= max {
+        for value in (min * 8).max(1)..(max + 1) * 8 {
+            if bitmap[value >> 3] & (1 << (value & 7)) != 0 {
+                lut.push(value as u16);
+            }
         }
     }
     let length = data
@@ -307,13 +310,14 @@ impl BitStream<'_> {
     }
 }
 
-/// Reads the code lengths of symbols `first..=last`: six bits each, 59..62
-/// a run of 2..5 zeros, 63 then eight bits a run of 6..261 zeros.
+/// Reads the code lengths of symbols `first..=last` (the first at index 0):
+/// six bits each, 59..62 a run of 2..5 zeros, 63 then eight bits a run of
+/// 6..261 zeros.
 fn read_lengths(table: &[u8], first: usize, last: usize) -> Result<Vec<u8>, &'static str> {
     let stream = BitStream { data: table };
     let end = table.len() * 8;
     let mut p = 0;
-    let mut lengths = vec![0u8; last + 1];
+    let mut lengths = vec![0u8; last + 1 - first];
     let mut symbol = first;
     while symbol <= last {
         if p + 6 > end {
@@ -337,7 +341,7 @@ fn read_lengths(table: &[u8], first: usize, last: usize) -> Result<Vec<u8>, &'st
             }
             symbol += run;
         } else {
-            lengths[symbol] = length as u8;
+            lengths[symbol - first] = length as u8;
             symbol += 1;
         }
     }
@@ -378,18 +382,22 @@ fn huffman_decode(data: &[u8], out: &mut [u16]) -> Result<(), &'static str> {
     }
     let mut next = offset;
     let mut symbols = vec![0u32; offset[MAX_LENGTH + 1]];
-    let mut fast = vec![0u32; 1 << LOOKAHEAD];
-    for (symbol, &l) in lengths.iter().enumerate() {
-        let l = usize::from(l);
+    // The lookup table spans the longest code's bits, at most LOOKAHEAD's:
+    // a chunk of short codes builds a small one.
+    let longest = (1..=MAX_LENGTH).rev().find(|&l| counts[l] > 0).unwrap_or(1);
+    let look = (longest as u32).min(LOOKAHEAD);
+    let mut fast = vec![0u32; 1 << look];
+    for (at, &l) in lengths.iter().enumerate() {
+        let (symbol, l) = (first + at, usize::from(l));
         if l == 0 {
             continue;
         }
         let rank = next[l] - offset[l];
         symbols[next[l]] = symbol as u32;
         next[l] += 1;
-        if l <= LOOKAHEAD as usize {
+        if l <= look as usize {
             let code = (base[l] + rank as u64) as usize;
-            let spare = LOOKAHEAD as usize - l;
+            let spare = look as usize - l;
             let entry = (symbol as u32) << 8 | l as u32;
             fast[code << spare..(code + 1) << spare].fill(entry);
         }
@@ -400,13 +408,13 @@ fn huffman_decode(data: &[u8], out: &mut [u16]) -> Result<(), &'static str> {
     let mut i = 0usize;
     while p < bits {
         let word = stream.peek(p);
-        let entry = fast[(word >> (64 - LOOKAHEAD)) as usize];
+        let entry = fast[(word >> (64 - look)) as usize];
         let (symbol, length) = if entry != 0 {
             (entry >> 8, (entry & 0xFF) as usize)
         } else {
             let wide = stream.peek_wide(p);
             let mut found = None;
-            for length in LOOKAHEAD as usize + 1..=MAX_LENGTH {
+            for length in look as usize + 1..=MAX_LENGTH {
                 let value = wide >> (64 - length);
                 if value >= base[length] && value - base[length] < counts[length] {
                     found = Some((
