@@ -1,6 +1,6 @@
 # The OpenEXR codec
 
-`src/exr/` reads and writes OpenEXR files into and from parts of channel planes, with Cryptomatte 1.2 in `src/exr/cryptomatte/`. It knows nothing of the SDK but the process's workers its chunks decompress and compress on (`parallel.rs`).
+`src/exr/` reads and writes OpenEXR files into and from parts of channel planes, with Cryptomatte 1.2 in `src/exr/cryptomatte/`. It knows nothing of the SDK but the process's workers its chunks decompress and compress on (`parallel::map`), the read's budget, and `files::replace`, which writes its files whole.
 
 ## Coverage
 
@@ -24,7 +24,6 @@ Not supported: deep data, mipmap and ripmap levels, subsampled channels (x/y sam
 | `read.rs` | headers of every part, offset tables, chunk validation (part number, y or tile coordinates), each part's size checked and its planes charged to the read's budget before they are allocated, decoding in groups of bands of rows on the workers straight into the channel planes |
 | `write.rs` | validation, headers, offset tables, chunks built and compressed on the workers, written in increasing y |
 | `image.rs` | `Part::to_image` / `from_image` (RGB(A), Y(A) or a lone channel), sample conversions |
-| `parallel.rs` | an ordered map on the process's workers |
 | `compression/mod.rs` | chunk codec dispatch; raw-size chunks are stored raw |
 | `compression/zip.rs` | the byte predictor ZIP, ZIPS and RLE share (split halves, deltas); the running sum eight bytes at a time |
 | `compression/rle.rs` | run-length coding |

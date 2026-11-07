@@ -92,7 +92,8 @@ impl FormatWriter for Writer {
         writing.check()?;
         let bytes = exr::write(&file, &Default::default()).map_err(at)?;
         writing.check()?;
-        std::fs::write(path, bytes)
+        let all = |file: &mut std::fs::File| std::io::Write::write_all(file, &bytes);
+        (kinogaki_studio_api::format::files::replace(path, all))
             .map_err(|e| Error::invalid(format!("{}: {e}", path.display())))?;
         Ok(warnings)
     }

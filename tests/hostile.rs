@@ -7,8 +7,9 @@ use kinogaki_exr_format::exr::{
 };
 use kinogaki_studio_api::format::ReadLimits;
 use kinogaki_studio_api::{Error, FileFormat, Imported, Input};
+use kinogaki_studio_api_testing::format::Scratch;
 use kinogaki_studio_api_testing::read_hostile;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 /// What a read of a hostile file may take, in a debug build.
@@ -232,25 +233,6 @@ fn a_part_past_the_budget_is_refused_before_its_planes() {
     assert!(why.message().contains("over the read's budget"), "{why}");
 }
 
-/// A scratch folder of its own, gone when dropped.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(test: &str) -> Scratch {
-        let name = format!("kinogaki-exr-{test}-{}", std::process::id());
-        let dir = std::env::temp_dir().join(name);
-        _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Scratch(dir)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 /// A Cryptomatte EXR at `path` whose manifest is the sidecar `sidecar`.
 fn cryptomatte(path: &Path, sidecar: &str) {
     let mut builder = Builder::new(2, 1, "CryptoObject", 1).unwrap();
@@ -262,16 +244,16 @@ fn cryptomatte(path: &Path, sidecar: &str) {
 
 #[test]
 fn a_sidecar_that_is_a_pipe_or_a_device_is_never_read() {
-    let scratch = Scratch::new("pipe");
-    let fifo = scratch.0.join("fifo.json");
+    let scratch = Scratch::new("exr-pipe");
+    let fifo = scratch.join("fifo.json");
     let made = std::process::Command::new("mkfifo")
         .arg(&fifo)
         .status()
         .unwrap();
     assert!(made.success());
-    std::os::unix::fs::symlink("/dev/zero", scratch.0.join("zero.json")).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", scratch.join("zero.json")).unwrap();
     for (file, sidecar) in [("pipe.exr", "fifo.json"), ("device.exr", "zero.json")] {
-        let path = scratch.0.join(file);
+        let path = scratch.join(file);
         cryptomatte(&path, sidecar);
         let read = read(&Input::file(&path), ReadLimits::default()).unwrap();
         let said: Vec<&str> = read.warnings.iter().map(|w| w.message.as_str()).collect();
@@ -284,18 +266,14 @@ fn a_sidecar_that_is_a_pipe_or_a_device_is_never_read() {
 }
 
 #[test]
-fn a_sidecar_linked_out_of_the_folder_is_left_unresolved() {
-    let scratch = Scratch::new("link");
-    let inside = scratch.0.join("shot");
+fn a_sidecar_linked_out_of_the_folder_is_read() {
+    let scratch = Scratch::new("exr-link");
+    let inside = scratch.join("shot");
     std::fs::create_dir_all(&inside).unwrap();
-    std::fs::write(scratch.0.join("secret.json"), b"{}").unwrap();
-    std::os::unix::fs::symlink(scratch.0.join("secret.json"), inside.join("m.json")).unwrap();
+    std::fs::write(scratch.join("secret.json"), b"{}").unwrap();
+    std::os::unix::fs::symlink(scratch.join("secret.json"), inside.join("m.json")).unwrap();
     let path = inside.join("shot.exr");
     cryptomatte(&path, "m.json");
     let read = read(&Input::file(&path), ReadLimits::default()).unwrap();
-    let said = &read.warnings.last().unwrap().message;
-    assert!(
-        said.contains("outside the folder") && said.ends_with("m.json"),
-        "{said}"
-    );
+    assert!(read.warnings.is_empty(), "{:?}", read.warnings);
 }

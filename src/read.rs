@@ -17,15 +17,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-/// The most pixels a part, and the parts' joined window, may have (2²⁸).
-const MAX_PIXELS: u64 = 1 << 28;
-
 /// `input` as one item holding its Image, named after the file.
 pub(crate) fn read(input: &Input<'_>, reading: &Reading<'_>) -> Result<Imported, Error> {
     reading.check()?;
     let bytes = input.bytes()?;
     let options = ReadOptions {
-        max_pixels: MAX_PIXELS,
         budget: reading.budget.clone(),
     };
     let file = exr::read(&bytes, &options).map_err(|e| match e {
@@ -90,13 +86,12 @@ fn image(
         .unwrap_or(first.header.data_window);
     // Parts far apart join into a window of more pixels than any of them.
     let pixels = (joined.width() as u64).saturating_mul(joined.height() as u64);
-    if pixels > MAX_PIXELS {
-        return Err(Error::invalid(format_args!(
-            "the parts' data windows together span {} × {} pixels, over 2²⁸",
-            joined.width(),
-            joined.height()
-        )));
-    }
+    (budget.pixels(joined.width() as u64, joined.height() as u64)).map_err(|e| {
+        match e.is_cancelled() {
+            true => e,
+            false => Error::invalid(format_args!("the parts' data windows together span {e}")),
+        }
+    })?;
     let data = rect(joined)?;
     let attributes = metadata::read(file, named, warnings)?;
     let tagged = file.parts.iter().any(|p| tag(p).is_some());

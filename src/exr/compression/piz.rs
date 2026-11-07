@@ -1,4 +1,4 @@
-//! PIZ (OpenEXR's algorithm, BSD-3-Clause; see THIRD_PARTY_NOTICES.md):
+//! PIZ (OpenEXR's algorithm, BSD-3-Clause; see LICENSE-OpenEXR):
 //! the chunk's 16-bit words, each channel as its own plane (FLOAT and UINT
 //! samples as two words), are renumbered densely by a bitmap of the
 //! values that occur, transformed by a 2D Haar-like wavelet per plane, and

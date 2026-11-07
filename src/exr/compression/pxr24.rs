@@ -1,4 +1,4 @@
-//! PXR24 (OpenEXR's algorithm, BSD-3-Clause; see THIRD_PARTY_NOTICES.md):
+//! PXR24 (OpenEXR's algorithm, BSD-3-Clause; see LICENSE-OpenEXR):
 //! FLOAT samples rounded to 24 bits, every sample replaced by its
 //! difference from the one to its left, each scanline's channel split
 //! into byte planes (most significant first), then zlib. HALF and UINT

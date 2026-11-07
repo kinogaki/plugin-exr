@@ -29,11 +29,12 @@ pub use builder::Builder;
 pub use hash::{hash_to_id, id_bits, metadata_key, murmur3_32, name_id};
 pub use manifest::Manifest;
 
-use crate::exr::parallel;
 use crate::exr::{
     Channel, ChannelSamples, Compression, Error, Exr, Header, Part, ReadOptions, Window,
     WriteOptions,
 };
+use kinogaki_studio_api::format::files;
+use kinogaki_studio_api::geometry::parallel;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -138,7 +139,7 @@ impl Matte {
             },
             &WriteOptions::default(),
         )?;
-        std::fs::write(path, bytes)?;
+        files::replace(path, |file| std::io::Write::write_all(file, &bytes))?;
         Ok(())
     }
 }
@@ -388,7 +389,9 @@ impl Cryptomatte {
                     (if invert { 1.0 - sum } else { sum }) as f32
                 })
                 .collect::<Vec<f32>>())
-        })?;
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>, Error>>()?;
         Ok(Matte {
             width: self.width,
             height: self.height,
@@ -399,7 +402,10 @@ impl Cryptomatte {
 
     /// Writes the manifest as JSON to `path`.
     pub fn write_manifest(&self, path: &Path) -> Result<(), Error> {
-        std::fs::write(path, self.manifest.to_json())?;
+        let manifest = self.manifest.to_json();
+        files::replace(path, |file| {
+            std::io::Write::write_all(file, manifest.as_bytes())
+        })?;
         Ok(())
     }
 }

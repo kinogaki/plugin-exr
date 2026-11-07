@@ -12,8 +12,8 @@
 //! against the most a part may have, its planes against the read's budget.
 use crate::exr::compression::{self, Shape};
 use crate::exr::header::{self, DEEP, LONG_NAMES, MAGIC, MULTIPART, Parsed, Reader, TILED};
-use crate::exr::parallel;
 use crate::exr::{Channel, ChannelSamples, Error, Exr, Part, PartHeader, ReadOptions, SampleType};
+use kinogaki_studio_api::geometry::parallel;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -181,7 +181,10 @@ fn read_part(
         .map(|c| c.sample_type.bytes() as u64)
         .sum::<u64>()
         .saturating_mul(pixels);
-    if pixels > options.max_pixels || bytes > options.max_pixels.saturating_mul(64) {
+    options
+        .budget
+        .pixels(layout.width as u64, layout.height as u64)?;
+    if bytes > options.budget.limits().pixels.saturating_mul(64) {
         return Err(Error::TooLarge);
     }
     let types: Vec<SampleType> = part.channels.iter().map(|c| c.sample_type).collect();
@@ -252,7 +255,9 @@ fn read_part(
                 }
             }
             Ok::<(), Error>(())
-        })?;
+        })
+        .into_iter()
+        .collect::<Result<(), Error>>()?;
     }
     let channels = part
         .channels

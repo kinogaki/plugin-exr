@@ -3,8 +3,8 @@
 //! a chunk that does not compress is stored raw.
 use crate::exr::compression::{self, Shape};
 use crate::exr::header::{self, LONG_NAMES, MAGIC, MULTIPART, TILED};
-use crate::exr::parallel;
 use crate::exr::{ChannelInfo, ChannelSamples, Error, Exr, Part, SampleType, WriteOptions};
+use kinogaki_studio_api::geometry::parallel;
 
 /// A part's chunk grid.
 struct Grid {
@@ -136,7 +136,7 @@ pub fn write(exr: &Exr, options: &WriteOptions) -> Result<Vec<u8>, Error> {
             .collect();
         let count = grid.across * grid.down;
         let chunks = parallel::map(count, |i| {
-            Ok::<Vec<u8>, Error>(chunk(
+            chunk(
                 part,
                 order,
                 &types,
@@ -144,8 +144,8 @@ pub fn write(exr: &Exr, options: &WriteOptions) -> Result<Vec<u8>, Error> {
                 i,
                 multipart.then_some(index as u32),
                 options,
-            ))
-        })?;
+            )
+        });
         for bytes in chunks {
             let offset = out.len() as u64;
             out[table + entry * 8..table + entry * 8 + 8].copy_from_slice(&offset.to_le_bytes());

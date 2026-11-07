@@ -12,7 +12,7 @@ A multi-part file reads as one Image (the parts' data windows joined, the first 
 - a layer is color when its part says its space (`colorspace` as a name, else `chromaticities` as primaries; the tag), or, in a file saying none, when its channels are colors (`R G B A`, `Y`); Cryptomatte ranks and integers are data; colors are premultiplied, as OpenEXR has them;
 - every header attribute is the Image's metadata (a later part's differing one under `<part>/<name>`), Cryptomatte's keys among them; a name an attribute's can't be is held escaped and written back as it was (`ColorSpace/Blue Primary` as `_ColorSpace/Blue:20Primary`: `_`, then each character a name can't hold, and each `:`, as `:` and its bytes in hex); a manifest in a sidecar file (`manif_file`) is read from beside the file as its `manifest`, through the SDK's `format::files::Named` (in the file's folder or below, a regular file, each file once, 64 MiB of manifests in all), and said left unresolved for a file in memory.
 
-A file is read as the SDK's policy for untrusted files says (Studio's `docs/plugins/FORMAT.md`): a part's size (2²⁸ pixels at most) and the parts' joined window (the same) are checked before anything is made of them, the planes and every layer's tiles are charged to the read's budget before they are allocated, and every chunk polls the read's cancellation.
+A file is read as the SDK's policy for untrusted files says (Studio's `docs/plugins/FORMAT.md`): a part's size and the parts' joined window are checked against the read budget's pixels (2²⁸ by default) before anything is made of them, the planes and every layer's tiles are charged to the read's budget before they are allocated, and every chunk polls the read's cancellation.
 
 ## Writing
 

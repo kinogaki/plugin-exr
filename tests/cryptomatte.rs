@@ -6,18 +6,11 @@
 //! `tools/cryptomatte_oracle.py check`, which compares every pixel.
 use kinogaki_exr_format::exr::cryptomatte::{Builder, Cryptomatte, Sidecar, layer_names};
 use kinogaki_exr_format::exr::{Compression, Error, ReadOptions};
+use kinogaki_studio_api_testing::format::Scratch;
 use std::path::{Path, PathBuf};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cryptomatte")
-}
-
-fn scratch(name: &str) -> PathBuf {
-    let directory = std::env::temp_dir()
-        .join(format!("kinogaki-exr-cryptomatte-{}", std::process::id()))
-        .join(name);
-    std::fs::create_dir_all(&directory).unwrap();
-    directory
 }
 
 /// A small layer: two samples at pixel 0, a background-only
@@ -84,7 +77,7 @@ fn bad_samples_are_refused() {
 
 #[test]
 fn files_and_sidecars_round_trip() {
-    let directory = scratch("roundtrip");
+    let directory = Scratch::new("exr-cryptomatte");
     let builder = builder();
     let path = directory.join("cryptomatte.exr");
     builder.save(&path, Compression::Zip, (0, 0), None).unwrap();

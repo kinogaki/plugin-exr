@@ -2,7 +2,6 @@
 //! own reading (`tools/images_oracle.py`), a render's Image written and read
 //! back whole, parts joined into one Image, Cryptomatte with a sidecar
 //! manifest, and damaged files.
-mod common;
 
 use kinogaki_exr_format::OpenExr;
 use kinogaki_exr_format::exr::{
@@ -17,6 +16,7 @@ use kinogaki_studio_api::{
     FileFormat, FileItem, Imported, Input, Purpose, Reading, Units, Value, Writing, standard,
 };
 use kinogaki_studio_api_testing::Unconverted;
+use kinogaki_studio_api_testing::workers;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -337,9 +337,9 @@ fn parts_of_other_windows_join_and_the_workers_never_change_a_read() {
         ],
     };
     let bytes = exr::write(&file, &Default::default()).unwrap();
-    common::workers(1);
+    workers::install(1);
     let (one, _) = image(&Input::memory("parts.exr", &bytes));
-    common::workers(8);
+    workers::install(8);
     let (many, _) = image(&Input::memory("parts.exr", &bytes));
     assert_eq!(one, many);
     assert_eq!(one.data(), Rect::new([0, 0], [200, 130]).unwrap());

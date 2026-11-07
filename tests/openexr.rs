@@ -4,12 +4,13 @@
 //! (`tools/exr_oracle.py fixtures`) from a pattern this test computes too.
 //! With `KINOGAKI_EXR_ORACLE_DIR` set, every file this test writes goes
 //! there for `tools/exr_oracle.py check`, which reads it with OpenEXR.
-mod common;
 
 use kinogaki_exr_format::exr::{
     Channel, ChannelSamples, Compression, Error, Exr, Header, Part, ReadOptions, Tiles, Window,
     WriteOptions, f32_to_f16,
 };
+use kinogaki_studio_api::format::{ReadBudget, ReadLimits};
+use kinogaki_studio_api_testing::workers;
 use std::path::{Path, PathBuf};
 
 const CHANNELS: [(&str, char); 6] = [
@@ -172,7 +173,7 @@ fn every_compression_round_trips_scanline_and_tiled() {
                 let exr = Exr {
                     parts: vec![part(width, height, compression, tiles, None)],
                 };
-                common::workers(width % 5 + 1);
+                workers::install(width % 5 + 1);
                 let bytes =
                     kinogaki_exr_format::exr::write(&exr, &WriteOptions::default()).unwrap();
                 let back = kinogaki_exr_format::exr::read(&bytes, &ReadOptions::default()).unwrap();
@@ -264,15 +265,16 @@ fn bad_files_fail_cleanly() {
         kinogaki_exr_format::exr::read(b"not an exr", &ReadOptions::default()),
         Err(Error::Corrupt { .. })
     ));
-    assert_eq!(
-        kinogaki_exr_format::exr::read(
-            &data,
-            &ReadOptions {
-                max_pixels: 100,
-                ..ReadOptions::default()
-            }
-        ),
-        Err(Error::TooLarge)
+    let fewer = ReadOptions {
+        budget: ReadBudget::new(ReadLimits {
+            pixels: 100,
+            ..ReadLimits::default()
+        }),
+    };
+    let refused = kinogaki_exr_format::exr::read(&data, &fewer);
+    assert!(
+        matches!(&refused, Err(Error::Budget(why)) if why.contains("over the read's limit of 100")),
+        "{refused:?}"
     );
     for name in [
         "scanline-zip.exr",
@@ -301,13 +303,11 @@ fn bad_files_fail_cleanly() {
                 mutated[at] ^= 1 << (seed >> 29);
             }
             // A small pixel limit: a mutated window must not allocate gigabytes.
-            let _ = kinogaki_exr_format::exr::read(
-                &mutated,
-                &ReadOptions {
-                    max_pixels: 1 << 22,
-                    ..ReadOptions::default()
-                },
-            );
+            let budget = ReadBudget::new(ReadLimits {
+                pixels: 1 << 22,
+                ..ReadLimits::default()
+            });
+            let _ = kinogaki_exr_format::exr::read(&mutated, &ReadOptions { budget });
         }
     }
 }

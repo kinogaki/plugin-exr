@@ -25,7 +25,6 @@ pub mod cryptomatte;
 mod error;
 mod header;
 mod image;
-mod parallel;
 mod read;
 mod write;
 
@@ -337,24 +336,13 @@ impl Part {
 }
 
 /// How a read runs.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ReadOptions {
-    /// The most pixels (data window) a part may have; its samples may
-    /// take at most 64 bytes a pixel of that.
-    pub max_pixels: u64,
-    /// What the read may spend, and its cancellation: every part's planes
-    /// are charged to it before they are allocated, and every chunk polls
-    /// it.
+    /// What the read may spend, and its cancellation: every part's data
+    /// window against its pixels (its samples at most 64 bytes a pixel of
+    /// that), its planes charged before they are allocated, and every chunk
+    /// polling it.
     pub budget: ReadBudget,
-}
-
-impl Default for ReadOptions {
-    fn default() -> Self {
-        Self {
-            max_pixels: 1 << 30,
-            budget: ReadBudget::default(),
-        }
-    }
 }
 
 /// How a write runs.

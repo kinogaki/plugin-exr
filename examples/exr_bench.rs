@@ -3,10 +3,9 @@
 //! `exr_bench read FILE [repeats]` and
 //! `exr_bench write FILE [repeats] none|rle|zips|zip|piz|pxr24 [fast|small]`
 //! (writing the file's own parts). Prints the best of the runs.
-#[path = "../tests/common/mod.rs"]
-mod common;
 
 use kinogaki_exr_format::exr::{Compression, Level, ReadOptions, WriteOptions};
+use kinogaki_studio_api_testing::workers;
 use std::time::Instant;
 
 fn main() {
@@ -14,12 +13,8 @@ fn main() {
     let number =
         |i: usize, fallback: usize| args.get(i).and_then(|s| s.parse().ok()).unwrap_or(fallback);
     let data = std::fs::read(&args[2]).expect("file");
-    let wanted = std::env::var("THREADS").ok().and_then(|t| t.parse().ok());
-    let threads = match wanted.unwrap_or(0) {
-        0 => std::thread::available_parallelism().map_or(1, |n| n.get()),
-        n => n,
-    };
-    common::workers(threads);
+    let threads = std::env::var("THREADS").ok().and_then(|t| t.parse().ok());
+    workers::install(threads.unwrap_or(0));
     let repeats = number(3, 5);
     let mut best = f64::MAX;
     match args[1].as_str() {

@@ -9,6 +9,7 @@
 use super::hash::id_bits;
 use super::{Cryptomatte, Manifest, Sidecar, check_sidecar, metadata_key, window};
 use crate::exr::{Channel, ChannelSamples, Compression, Error, Exr, Header, Part, WriteOptions};
+use kinogaki_studio_api::format::files;
 use std::path::Path;
 
 /// One ID's weight at a pixel, in that pixel's list.
@@ -204,10 +205,13 @@ impl Builder {
         part.header.compression = compression;
         if let Some(name) = sidecar {
             let directory = path.parent().unwrap_or(Path::new(""));
-            std::fs::write(directory.join(name), self.manifest.to_json())?;
+            let manifest = self.manifest.to_json();
+            files::replace(&directory.join(name), |file| {
+                std::io::Write::write_all(file, manifest.as_bytes())
+            })?;
         }
         let bytes = crate::exr::write(&Exr { parts: vec![part] }, &WriteOptions::default())?;
-        std::fs::write(path, bytes)?;
+        files::replace(path, |file| std::io::Write::write_all(file, &bytes))?;
         Ok(())
     }
 }
