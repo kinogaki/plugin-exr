@@ -4,7 +4,8 @@
 //! `exr_bench write FILE [repeats] none|rle|zips|zip|piz|pxr24 [fast|small]`
 //! (writing the file's own parts). Prints the best of the runs.
 
-use kinogaki_exr_format::exr::{Compression, Level, ReadOptions, WriteOptions};
+use kinogaki_exr_format::exr::{Compression, Level, WriteOptions};
+use kinogaki_studio_api::format::ReadBudget;
 use kinogaki_studio_api_testing::workers;
 use std::time::Instant;
 
@@ -19,7 +20,7 @@ fn main() {
     let mut best = f64::MAX;
     match args[1].as_str() {
         "read" => {
-            let options = ReadOptions::default();
+            let options = ReadBudget::default();
             for _ in 0..repeats {
                 let start = Instant::now();
                 let exr = kinogaki_exr_format::exr::read(&data, &options).unwrap();
@@ -29,7 +30,7 @@ fn main() {
             println!("read {}: best {best:.1} ms of {repeats}", args[2]);
         }
         "write" => {
-            let mut exr = kinogaki_exr_format::exr::read(&data, &ReadOptions::default()).unwrap();
+            let mut exr = kinogaki_exr_format::exr::read(&data, &ReadBudget::default()).unwrap();
             let compression = match args[4].as_str() {
                 "none" => Compression::None,
                 "rle" => Compression::Rle,

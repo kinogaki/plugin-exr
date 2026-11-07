@@ -3,7 +3,7 @@
 //! What the Image takes is checked before it is made: the joined window
 //! against the most pixels an Image of a file may have, every layer's tiles
 //! against the read's budget.
-use crate::exr::{self, ChannelSamples, Exr, Part, ReadOptions, Window};
+use crate::exr::{self, ChannelSamples, Exr, Part, Window};
 use crate::metadata;
 use crate::tiles::{Plane, tiles};
 use kinogaki_render_api::aov::{self, cryptomatte};
@@ -21,10 +21,7 @@ use std::sync::Arc;
 pub(crate) fn read(input: &Input<'_>, reading: &Reading<'_>) -> Result<Imported, Error> {
     reading.check()?;
     let bytes = input.bytes()?;
-    let options = ReadOptions {
-        budget: reading.budget.clone(),
-    };
-    let file = exr::read(&bytes, &options).map_err(|e| match e {
+    let file = exr::read(&bytes, &reading.budget).map_err(|e| match e {
         exr::Error::Cancelled => Error::cancelled(),
         e => Error::invalid(format!("{input}: {e}")),
     })?;

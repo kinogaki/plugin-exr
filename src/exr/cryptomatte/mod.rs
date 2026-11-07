@@ -30,8 +30,7 @@ pub use hash::{hash_to_id, id_bits, metadata_key, murmur3_32, name_id};
 pub use manifest::Manifest;
 
 use crate::exr::{
-    Channel, ChannelSamples, Compression, Error, Exr, Header, Part, ReadOptions, Window,
-    WriteOptions,
+    Channel, ChannelSamples, Compression, Error, Exr, Header, Part, Window, WriteOptions,
 };
 use kinogaki_studio_api::format::files;
 use kinogaki_studio_api::geometry::parallel;
@@ -266,7 +265,7 @@ impl Cryptomatte {
     /// sidecar manifest is read from beside it when `load_sidecar`.
     pub fn open(path: &Path, layer: &str, load_sidecar: bool) -> Result<Cryptomatte, Error> {
         let bytes = std::fs::read(path)?;
-        let exr = crate::exr::read(&bytes, &ReadOptions::default())?;
+        let exr = crate::exr::read(&bytes, &kinogaki_studio_api::format::ReadBudget::default())?;
         let directory: PathBuf = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let sidecar = if load_sidecar {
             Sidecar::Beside(&directory)

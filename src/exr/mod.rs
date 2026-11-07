@@ -13,11 +13,12 @@
 //! [`Image`]. Cryptomatte layers are in [`cryptomatte`].
 //!
 //! ```
-//! use kinogaki_exr_format::exr::{Compression, Exr, Image, Part, ReadOptions, Samples, WriteOptions};
+//! use kinogaki_exr_format::exr::{Compression, Exr, Image, Part, Samples, WriteOptions};
+//! use kinogaki_studio_api::format::ReadBudget;
 //! let image = Image::new(2, 1, 4, Samples::F32(vec![1.0, 0.5, 0.25, 1.0, 0.0, 0.0, 0.0, 0.5])).unwrap();
 //! let part = Part::from_image(&image, Compression::Zip).unwrap();
 //! let bytes = kinogaki_exr_format::exr::write(&Exr { parts: vec![part] }, &WriteOptions::default()).unwrap();
-//! let read = kinogaki_exr_format::exr::read(&bytes, &ReadOptions::default()).unwrap();
+//! let read = kinogaki_exr_format::exr::read(&bytes, &ReadBudget::default()).unwrap();
 //! assert_eq!(read.parts[0].to_image().unwrap(), image);
 //! ```
 mod compression;
@@ -31,7 +32,6 @@ mod write;
 pub use error::Error;
 pub use kinogaki_deflate::Level;
 pub use kinogaki_image::{Image, Samples, f16_to_f32, f32_to_f16};
-use kinogaki_studio_api::format::ReadBudget;
 pub use read::{read, read_headers};
 pub use write::write;
 
@@ -333,16 +333,6 @@ impl Part {
             self.header.data_window.height(),
         )
     }
-}
-
-/// How a read runs.
-#[derive(Clone, Debug, Default)]
-pub struct ReadOptions {
-    /// What the read may spend, and its cancellation: every part's data
-    /// window against its pixels (its samples at most 64 bytes a pixel of
-    /// that), its planes charged before they are allocated, and every chunk
-    /// polling it.
-    pub budget: ReadBudget,
 }
 
 /// How a write runs.

@@ -12,7 +12,8 @@
 //! against the most a part may have, its planes against the read's budget.
 use crate::exr::compression::{self, Shape};
 use crate::exr::header::{self, DEEP, LONG_NAMES, MAGIC, MULTIPART, Parsed, Reader, TILED};
-use crate::exr::{Channel, ChannelSamples, Error, Exr, Part, PartHeader, ReadOptions, SampleType};
+use crate::exr::{Channel, ChannelSamples, Error, Exr, Part, PartHeader, SampleType};
+use kinogaki_studio_api::format::ReadBudget;
 use kinogaki_studio_api::geometry::parallel;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -133,8 +134,11 @@ enum Rows<'a> {
     F32(&'a mut [f32]),
 }
 
-/// Reads every part of the EXR in `data`.
-pub fn read(data: &[u8], options: &ReadOptions) -> Result<Exr, Error> {
+/// Reads every part of the EXR in `data` within `budget`: every part's
+/// data window against its pixels (its samples at most 64 bytes a pixel of
+/// that), its planes charged before they are allocated, and every chunk
+/// polling its cancellation.
+pub fn read(data: &[u8], budget: &ReadBudget) -> Result<Exr, Error> {
     let structure = structure(data)?;
     let mut table = Reader::new(data, structure.tables);
     let mut offsets = Vec::with_capacity(structure.parts.len());
@@ -163,7 +167,7 @@ pub fn read(data: &[u8], options: &ReadOptions) -> Result<Exr, Error> {
     let mut parts = Vec::with_capacity(structure.parts.len());
     for (index, (parsed, offsets)) in structure.parts.into_iter().zip(offsets).enumerate() {
         let multipart = structure.multipart.then_some(index as u32);
-        parts.push(read_part(data, parsed.part, &offsets, multipart, options)?);
+        parts.push(read_part(data, parsed.part, &offsets, multipart, budget)?);
     }
     Ok(Exr { parts })
 }
@@ -173,7 +177,7 @@ fn read_part(
     part: PartHeader,
     offsets: &[u64],
     multipart: Option<u32>,
-    options: &ReadOptions,
+    budget: &ReadBudget,
 ) -> Result<Part, Error> {
     let layout = Layout::of(&part);
     let pixels = (layout.width as u64).saturating_mul(layout.height as u64);
@@ -181,15 +185,13 @@ fn read_part(
         .map(|c| c.sample_type.bytes() as u64)
         .sum::<u64>()
         .saturating_mul(pixels);
-    options
-        .budget
-        .pixels(layout.width as u64, layout.height as u64)?;
-    if bytes > options.budget.limits().pixels.saturating_mul(64) {
+    budget.pixels(layout.width as u64, layout.height as u64)?;
+    if bytes > budget.limits().pixels.saturating_mul(64) {
         return Err(Error::TooLarge);
     }
     let types: Vec<SampleType> = part.channels.iter().map(|c| c.sample_type).collect();
     for t in &types {
-        options.budget.allocate(pixels * t.bytes() as u64)?;
+        budget.allocate(pixels * t.bytes() as u64)?;
     }
     let mut planes: Vec<ChannelSamples> = types
         .iter()
@@ -241,7 +243,7 @@ fn read_part(
                     if failed.load(Ordering::Relaxed) < group {
                         return Ok(());
                     }
-                    let read = options.budget.check().map_err(Error::from).and_then(|()| {
+                    let read = budget.check().map_err(Error::from).and_then(|()| {
                         let at = (band - first) * band_len;
                         let chunk = (column, band);
                         read_chunk(

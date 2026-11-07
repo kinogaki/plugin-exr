@@ -5,7 +5,8 @@
 //! `KINOGAKI_CRYPTOMATTE_ORACLE_DIR` set, mattes are also written there for
 //! `tools/cryptomatte_oracle.py check`, which compares every pixel.
 use kinogaki_exr_format::exr::cryptomatte::{Builder, Cryptomatte, Sidecar, layer_names};
-use kinogaki_exr_format::exr::{Compression, Error, ReadOptions};
+use kinogaki_exr_format::exr::{Compression, Error};
+use kinogaki_studio_api::format::ReadBudget;
 use kinogaki_studio_api_testing::format::Scratch;
 use std::path::{Path, PathBuf};
 
@@ -137,7 +138,7 @@ fn files_and_sidecars_round_trip() {
     matte.save(&matte_path, Compression::Zip).unwrap();
     let back = kinogaki_exr_format::exr::read(
         &std::fs::read(&matte_path).unwrap(),
-        &ReadOptions::default(),
+        &ReadBudget::default(),
     )
     .unwrap();
     assert_eq!(back.parts[0].header.data_window.x_min, -10);

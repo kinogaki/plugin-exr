@@ -6,8 +6,8 @@
 //! there for `tools/exr_oracle.py check`, which reads it with OpenEXR.
 
 use kinogaki_exr_format::exr::{
-    Channel, ChannelSamples, Compression, Error, Exr, Header, Part, ReadOptions, Tiles, Window,
-    WriteOptions, f32_to_f16,
+    Channel, ChannelSamples, Compression, Error, Exr, Header, Part, Tiles, Window, WriteOptions,
+    f32_to_f16,
 };
 use kinogaki_studio_api::format::{ReadBudget, ReadLimits};
 use kinogaki_studio_api_testing::workers;
@@ -85,7 +85,7 @@ fn files_openexr_wrote_read_exactly() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_str().unwrap().to_owned();
         let data = std::fs::read(&path).unwrap();
-        let exr = kinogaki_exr_format::exr::read(&data, &ReadOptions::default())
+        let exr = kinogaki_exr_format::exr::read(&data, &ReadBudget::default())
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         for part in &exr.parts {
             check_part(part, name.contains("pxr24"), &name);
@@ -98,7 +98,7 @@ fn files_openexr_wrote_read_exactly() {
     assert_eq!(count, 12);
     let multipart = kinogaki_exr_format::exr::read(
         &std::fs::read(fixtures().join("multipart.exr")).unwrap(),
-        &ReadOptions::default(),
+        &ReadBudget::default(),
     )
     .unwrap();
     let names: Vec<_> = multipart
@@ -176,7 +176,7 @@ fn every_compression_round_trips_scanline_and_tiled() {
                 workers::install(width % 5 + 1);
                 let bytes =
                     kinogaki_exr_format::exr::write(&exr, &WriteOptions::default()).unwrap();
-                let back = kinogaki_exr_format::exr::read(&bytes, &ReadOptions::default()).unwrap();
+                let back = kinogaki_exr_format::exr::read(&bytes, &ReadBudget::default()).unwrap();
                 let what = format!("{compression:?} {width}x{height} {tiles:?}");
                 check_part(&back.parts[0], compression == Compression::Pxr24, &what);
                 assert_eq!(back.parts[0].header, exr.parts[0].header, "{what}");
@@ -213,7 +213,7 @@ fn multipart_files_round_trip() {
     };
     let bytes = kinogaki_exr_format::exr::write(&exr, &WriteOptions::default()).unwrap();
     oracle_write("multipart.exr", &bytes);
-    let back = kinogaki_exr_format::exr::read(&bytes, &ReadOptions::default()).unwrap();
+    let back = kinogaki_exr_format::exr::read(&bytes, &ReadBudget::default()).unwrap();
     assert_eq!(back, exr);
     let mut unnamed = exr.clone();
     unnamed.parts[1].header.name = None;
@@ -253,7 +253,7 @@ fn windows_attributes_and_long_names_survive() {
     let exr = Exr { parts: vec![p] };
     let bytes = kinogaki_exr_format::exr::write(&exr, &WriteOptions::default()).unwrap();
     oracle_write("windows.exr", &bytes);
-    let back = kinogaki_exr_format::exr::read(&bytes, &ReadOptions::default()).unwrap();
+    let back = kinogaki_exr_format::exr::read(&bytes, &ReadBudget::default()).unwrap();
     assert_eq!(back, exr);
     assert_eq!(back.parts[0].header.string("owner"), Some("kinogaki"));
 }
@@ -262,15 +262,13 @@ fn windows_attributes_and_long_names_survive() {
 fn bad_files_fail_cleanly() {
     let data = std::fs::read(fixtures().join("scanline-zip.exr")).unwrap();
     assert!(matches!(
-        kinogaki_exr_format::exr::read(b"not an exr", &ReadOptions::default()),
+        kinogaki_exr_format::exr::read(b"not an exr", &ReadBudget::default()),
         Err(Error::Corrupt { .. })
     ));
-    let fewer = ReadOptions {
-        budget: ReadBudget::new(ReadLimits {
-            pixels: 100,
-            ..ReadLimits::default()
-        }),
-    };
+    let fewer = ReadBudget::new(ReadLimits {
+        pixels: 100,
+        ..ReadLimits::default()
+    });
     let refused = kinogaki_exr_format::exr::read(&data, &fewer);
     assert!(
         matches!(&refused, Err(Error::Budget(why)) if why.contains("over the read's limit of 100")),
@@ -288,7 +286,7 @@ fn bad_files_fail_cleanly() {
         let step = (data.len() / 200).max(1);
         for cut in (0..data.len() - 1).step_by(step) {
             assert!(
-                kinogaki_exr_format::exr::read(&data[..cut], &ReadOptions::default()).is_err(),
+                kinogaki_exr_format::exr::read(&data[..cut], &ReadBudget::default()).is_err(),
                 "{name} cut at {cut}"
             );
         }
@@ -307,7 +305,7 @@ fn bad_files_fail_cleanly() {
                 pixels: 1 << 22,
                 ..ReadLimits::default()
             });
-            let _ = kinogaki_exr_format::exr::read(&mutated, &ReadOptions { budget });
+            let _ = kinogaki_exr_format::exr::read(&mutated, &budget);
         }
     }
 }
