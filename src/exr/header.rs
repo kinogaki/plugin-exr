@@ -156,6 +156,7 @@ fn channels(value: &[u8], at: usize) -> Result<Vec<ChannelInfo>, Error> {
 pub(crate) fn parse(r: &mut Reader) -> Result<Parsed, Error> {
     let start = r.pos;
     let mut attributes: Vec<(Attribute, usize)> = Vec::new();
+    let mut named = std::collections::HashSet::new();
     loop {
         if r.data.get(r.pos) == Some(&0) {
             r.pos += 1;
@@ -169,7 +170,7 @@ pub(crate) fn parse(r: &mut Reader) -> Result<Parsed, Error> {
             return Err(Error::corrupt("negative attribute size", at));
         }
         let value = r.take(size as usize)?.to_vec();
-        if attributes.iter().any(|(a, _)| a.name == name) {
+        if !named.insert(name.clone()) {
             return Err(Error::corrupt("duplicate attribute", at));
         }
         attributes.push((Attribute { name, kind, value }, r.pos - size as usize));

@@ -10,7 +10,9 @@ A multi-part file reads as one Image (the parts' data windows joined, the first 
 - a channel `<layer>.<name>` is `<layer>`'s; one named alone is its part's layer: the main one (`""`) in a file of one part, else the layer of the output its part is named after (`beauty` is `""`, `albedo` is `albedo`). A layer holds at most four channels: past the colors, a main layer's `Z` is `depth` and another channel a layer of its own. Colors come first in a layer (`R G B`, then `X Y Z`, the rest by name, `A` last);
 - samples stay as stored (half, float, integer); a layer mixing them is read as floats;
 - a layer is color when its part says its space (`colorspace` as a name, else `chromaticities` as primaries; the tag), or, in a file saying none, when its channels are colors (`R G B A`, `Y`); Cryptomatte ranks and integers are data; colors are premultiplied, as OpenEXR has them;
-- every header attribute is the Image's metadata (a later part's differing one under `<part>/<name>`), Cryptomatte's keys among them; a manifest in a sidecar file (`manif_file`) is read from beside the file as its `manifest`, and said missing for a file in memory.
+- every header attribute is the Image's metadata (a later part's differing one under `<part>/<name>`), up to 1,024 (the rest left out, said), Cryptomatte's keys among them; a manifest in a sidecar file (`manif_file`) is read from beside the file as its `manifest`, through the SDK's `format::files::Named` (in the file's folder or below, a regular file, each file once, 64 MiB of manifests in all), and said left unresolved for a file in memory.
+
+A file is read as the SDK's policy for untrusted files says (Studio's `docs/plugins/FORMAT.md`): a part's size (2²⁸ pixels at most) and the parts' joined window (the same) are checked before anything is made of them, the planes and every layer's tiles are charged to the read's budget before they are allocated, and every chunk polls the read's cancellation.
 
 ## Writing
 
@@ -25,11 +27,12 @@ Option `parts`: a part a layer (`layers`, the default), named by its output (`""
 | `src/write.rs` | One Image to an EXR's parts, and the writer's options |
 | `src/metadata.rs` | Header attributes to the Image's metadata and back, Cryptomatte's sidecar manifests |
 | `src/tiles.rs` | Channel planes to an Image's tiles on the workers, and back |
-| `src/exr/` | The codec and Cryptomatte, knowing no SDK but the process's workers ([docs/CODEC.md](docs/CODEC.md)) |
+| `src/exr/` | The codec and Cryptomatte, knowing no SDK but the process's workers and the read budget ([docs/CODEC.md](docs/CODEC.md)) |
 
 ## Tests and data
 
 - `tests/openexr.rs`, `tests/cryptomatte.rs`: the codec against OpenEXR's own files and Psyop's Cryptomatte samples ([docs/CODEC.md](docs/CODEC.md#tests-and-oracles)).
+- `tests/hostile.rs`: hostile files made in code, read as Import reads them, each a clean error or warning within seconds: parts far apart, 4,096 channels in 40,000 bands, windows whose chunk counts overflow, 100,000 attributes, a cut ZIP chunk, a part past a small budget, sidecars that are a pipe, a device or a link out of the folder.
 - `tests/format.rs`: a committed subset of openexr-images reads as OpenEXR reads it (`tools/images_oracle.py`), luminance-chroma and multi-resolution files refused naming the file; a render's frame (beauty, albedo, depth, object ids, Cryptomatte with its manifest) written a part an output and as one part, and read back as itself; parts of other windows joined, the same on any number of workers; a sidecar manifest read beside its file; damaged and truncated files fail without panicking.
 - `examples/exr_bench.rs`, `examples/cryptomatte_bench.rs` time the codec.
 

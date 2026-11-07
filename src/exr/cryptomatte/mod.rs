@@ -34,10 +34,11 @@ use crate::exr::{
     Channel, ChannelSamples, Compression, Error, Exr, Header, Part, ReadOptions, Window,
     WriteOptions,
 };
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 /// The most bytes a sidecar manifest may take.
-const MAX_SIDECAR: u64 = 64 << 20;
+pub(crate) const MAX_SIDECAR: u64 = 64 << 20;
 /// The most channel quadruples a layer may have.
 const MAX_SETS: usize = 512;
 
@@ -58,7 +59,7 @@ fn is_name_key(key: &str) -> bool {
 /// Whether `name` is a safe sidecar path: relative, a descendant (no
 /// `..`, `.` or empty components), no backslash, colon or NUL, ending in
 /// `.json`. Lexical only: symbolic links are followed when read.
-fn check_sidecar(name: &str) -> Result<(), Error> {
+pub(crate) fn check_sidecar(name: &str) -> Result<(), Error> {
     let bad = name.is_empty()
         || name.starts_with('/')
         || name.contains(['\\', ':', '\0'])
@@ -422,10 +423,18 @@ pub fn sidecar(directory: &Path, file: &str) -> Result<String, Error> {
     read_sidecar(&directory.join(file))
 }
 
+/// The text of the sidecar at `path`: a regular file (a pipe or a device
+/// is never opened: a pipe waits for a writer, a device never ends), read
+/// no further than [`MAX_SIDECAR`].
 fn read_sidecar(path: &Path) -> Result<String, Error> {
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(Error::Invalid("Cryptomatte sidecar is not a regular file"));
+    }
     let file = std::fs::File::open(path)?;
     if file.metadata()?.len() > MAX_SIDECAR {
         return Err(Error::TooLarge);
     }
-    std::fs::read_to_string(path).map_err(|e| Error::Io(e.to_string()))
+    let mut text = String::new();
+    file.take(MAX_SIDECAR).read_to_string(&mut text)?;
+    Ok(text)
 }

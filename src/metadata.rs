@@ -1,26 +1,36 @@
 //! A file's header attributes as an Image's metadata ([`read`]), and back
 //! ([`write`]).
-use crate::exr::cryptomatte;
+use crate::exr::cryptomatte::{MAX_SIDECAR, check_sidecar};
 use crate::exr::{Attribute as Raw, Exr, Header};
+use kinogaki_studio_api::format::files::Named;
 use kinogaki_studio_api::geometry::image::metadata::{CHROMATICITIES, PIXELATED};
 use kinogaki_studio_api::geometry::{Attribute, Attributes, Domain, Meaning, Text, Tuple};
 use kinogaki_studio_api::{Diagnostic, Error};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-/// Every attribute of `file`'s parts as Detail attributes: the first part's
-/// by their names, a later part's by its name too unless an earlier one
-/// holds another value there, then as `<part>/<name>`. A Cryptomatte
-/// manifest kept in a sidecar file (`manif_file`) is read from `beside` as
-/// its `manifest`. Attributes no metadata can hold (a preview image, a list
-/// of texts, a name of characters an attribute's can't have) are left out,
-/// said once.
+/// The most attributes a file's metadata keeps: each one added copies the
+/// table, so a header of a hundred thousand would take minutes, and no
+/// renderer writes a thousand.
+const MOST: usize = 1024;
+
+/// Every attribute of `file`'s parts as Detail attributes, up to [`MOST`]:
+/// the first part's by their names, a later part's by its name too unless
+/// an earlier one holds another value there, then as `<part>/<name>`. A
+/// Cryptomatte manifest kept in a sidecar file (`manif_file`) is read
+/// through `named` as its `manifest`, each file once and 64 MiB of them in
+/// all. Attributes no metadata can hold (a preview image, a list of texts,
+/// a name of characters an attribute's can't have) are left out, said once.
 pub(crate) fn read(
     file: &Exr,
-    beside: Option<&Path>,
+    named: &Named,
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Attributes, Error> {
     let mut held = Attributes::new();
+    let mut kept = 0;
     let mut left_out: Vec<String> = Vec::new();
+    let mut sidecars = Sidecars::default();
     for part in &file.parts {
         for raw in &part.header.attributes {
             let Some(value) = value(raw) else {
@@ -36,56 +46,101 @@ pub(crate) fn read(
                     raw.name
                 ),
             };
+            if kept == MOST {
+                left_out.push(raw.name.clone());
+                continue;
+            }
             match held.with(Domain::Detail, &name, value) {
-                Ok(with) => held = with,
+                Ok(with) => (held, kept) = (with, kept + 1),
                 Err(_) => left_out.push(raw.name.clone()),
             }
         }
-        held = sidecars(&part.header, held, beside, warnings)?;
+        held = sidecars.read(&part.header, held, named, warnings)?;
     }
     if !left_out.is_empty() {
+        let shown = left_out.len().min(16);
+        let more = match left_out.len() - shown {
+            0 => String::new(),
+            more => format!(" and {more} more"),
+        };
         warnings.push(Diagnostic::warning(format!(
-            "attributes an image's metadata can't hold left out: {}",
-            left_out.join(", ")
+            "attributes an image's metadata can't hold left out: {}{more}",
+            left_out[..shown].join(", ")
         )));
     }
     Ok(held)
 }
 
-/// `held` with the manifest of each of `header`'s Cryptomatte layers that
-/// keeps its manifest in a sidecar file.
-fn sidecars(
-    header: &Header,
-    mut held: Attributes,
-    beside: Option<&Path>,
-    warnings: &mut Vec<Diagnostic>,
-) -> Result<Attributes, Error> {
-    for raw in &header.attributes {
-        let Some(key) = raw.name.strip_suffix("/manif_file") else {
-            continue;
-        };
-        let manifest = format!("{key}/manifest");
-        if header.attribute(&manifest).is_some() {
-            continue;
-        }
-        let file = String::from_utf8_lossy(&raw.value);
-        let Some(directory) = beside else {
-            warnings.push(Diagnostic::warning(format!(
-                "Cryptomatte manifest {file} is a file beside the image, and this one is on no disk"
-            )));
-            continue;
-        };
-        match cryptomatte::sidecar(directory, &file) {
-            Ok(text) => {
-                let text = Attribute::text(Text::from_strs([text.as_str()]));
-                held = held.with(Domain::Detail, &manifest, text)?;
+/// The sidecar manifests a read has read: each file once, by its path,
+/// and 64 MiB of manifests kept in all, however many layers name one.
+#[derive(Default)]
+struct Sidecars {
+    read: HashMap<PathBuf, Arc<str>>,
+    /// Bytes of manifests kept so far.
+    kept: u64,
+}
+
+impl Sidecars {
+    /// `held` with the manifest of each of `header`'s Cryptomatte layers that
+    /// keeps its manifest in a sidecar file.
+    fn read(
+        &mut self,
+        header: &Header,
+        mut held: Attributes,
+        named: &Named,
+        warnings: &mut Vec<Diagnostic>,
+    ) -> Result<Attributes, Error> {
+        for raw in &header.attributes {
+            let Some(key) = raw.name.strip_suffix("/manif_file") else {
+                continue;
+            };
+            let manifest = format!("{key}/manifest");
+            if header.attribute(&manifest).is_some() {
+                continue;
             }
-            Err(why) => warnings.push(Diagnostic::warning(format!(
-                "Cryptomatte manifest {file}: {why}"
-            ))),
+            let file = String::from_utf8_lossy(&raw.value);
+            let text = match self.text(&file, named) {
+                Ok(Some(text)) if self.kept + text.len() as u64 <= MAX_SIDECAR => text,
+                Ok(None) => continue,
+                found => {
+                    let why = found
+                        .err()
+                        .unwrap_or_else(|| "over the 64 MiB a file's manifests may take".into());
+                    warnings.push(Diagnostic::warning(format!(
+                        "Cryptomatte manifest {file}: {why}"
+                    )));
+                    continue;
+                }
+            };
+            self.kept += text.len() as u64;
+            let text = Attribute::text(Text::from_strs([&*text]));
+            held = held.with(Domain::Detail, &manifest, text)?;
         }
+        Ok(held)
     }
-    Ok(held)
+
+    /// The text of sidecar `file`, a relative `.json` path beside the file
+    /// found through `named`; `None` where `named` left it unresolved (its
+    /// warnings say so).
+    fn text(&mut self, file: &str, named: &Named) -> Result<Option<Arc<str>>, String> {
+        check_sidecar(file).map_err(|e| e.to_string())?;
+        let Some(path) = named.file(file, None) else {
+            return Ok(None);
+        };
+        if let Some(text) = self.read.get(&path) {
+            return Ok(Some(text.clone()));
+        }
+        let len = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        if self.kept + len > MAX_SIDECAR {
+            return Err("over the 64 MiB a file's manifests may take".into());
+        }
+        let bytes = named.read(&path).map_err(|e| e.message().to_owned())?;
+        let text: Arc<str> = String::from_utf8(bytes)
+            .map_err(|_| "not UTF-8 text".to_owned())?
+            .into();
+        self.read.insert(path, text.clone());
+        Ok(Some(text))
+    }
 }
 
 /// `raw` as an attribute, when one can hold it.

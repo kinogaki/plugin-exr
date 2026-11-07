@@ -5,7 +5,9 @@
 //! unsigned integers, half floats as their bits, or floats), in the
 //! file's own order: sorted by name. [`read`](fn@read) reads scanline and
 //! tiled parts (single level) of every compression but B44 and DWA: none,
-//! RLE, ZIPS, ZIP, PIZ and PXR24; [`write`](fn@write) writes all of those.
+//! RLE, ZIPS, ZIP, PIZ and PXR24, within a read budget (the SDK's
+//! `ReadBudget`, the one thing of the SDK it takes besides the workers);
+//! [`write`](fn@write) writes all of those.
 //! Chunks decompress and compress on the process's workers. [`Part::to_image`] and
 //! [`Part::from_image`] convert to and from lib-image's interleaved
 //! [`Image`]. Cryptomatte layers are in [`cryptomatte`].
@@ -30,6 +32,7 @@ mod write;
 pub use error::Error;
 pub use kinogaki_deflate::Level;
 pub use kinogaki_image::{Image, Samples, f16_to_f32, f32_to_f16};
+use kinogaki_studio_api::format::ReadBudget;
 pub use read::{read, read_headers};
 pub use write::write;
 
@@ -334,17 +337,22 @@ impl Part {
 }
 
 /// How a read runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct ReadOptions {
     /// The most pixels (data window) a part may have; its samples may
     /// take at most 64 bytes a pixel of that.
     pub max_pixels: u64,
+    /// What the read may spend, and its cancellation: every part's planes
+    /// are charged to it before they are allocated, and every chunk polls
+    /// it.
+    pub budget: ReadBudget,
 }
 
 impl Default for ReadOptions {
     fn default() -> Self {
         Self {
             max_pixels: 1 << 30,
+            budget: ReadBudget::default(),
         }
     }
 }

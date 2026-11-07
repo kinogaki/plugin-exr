@@ -10,7 +10,7 @@
 - Every header attribute kept: the structural ones typed, the rest raw in file order, string attributes readable and settable.
 - Conversion to and from lib-image's interleaved `Image`.
 
-Cryptomatte 1.2 (`exr::cryptomatte`): layer discovery, layers of FLOAT quadruples (R/G/B/A in three spellings), mattes of names or exact IDs across every rank with inversion, picking by ID and name, manifests embedded or in sidecar files (lexically checked relative paths, 64 MiB limit), manifest writing, and the weighted-sample builder writing a layer (manifest embedded or sidecar).
+Cryptomatte 1.2 (`exr::cryptomatte`): layer discovery, layers of FLOAT quadruples (R/G/B/A in three spellings), mattes of names or exact IDs across every rank with inversion, picking by ID and name, manifests embedded or in sidecar files (lexically checked relative paths, regular files only, 64 MiB limit), manifest writing, and the weighted-sample builder writing a layer (manifest embedded or sidecar).
 
 Not supported: deep data, mipmap and ripmap levels, subsampled channels (x/y sampling other than 1: luminance-chroma files), B44/B44A, DWAA/DWAB, HTJ2K and ZSTD.
 
@@ -21,7 +21,7 @@ Not supported: deep data, mipmap and ripmap levels, subsampled channels (x/y sam
 | `mod.rs` | `Exr`, `Part`, `Header`, `Channel`, `ChannelSamples` (U32, F16 bits, F32 planes), `Window`, `Tiles`, `Compression`, options |
 | `error.rs` | `Error`: `Corrupt { what, at }`, `Unsupported`, `Invalid`, `TooLarge`, `Io` |
 | `header.rs` | magic and version flags, attributes, the channel list, the interpreted attributes (everything else kept raw, in order), header writing |
-| `read.rs` | headers of every part, offset tables, chunk validation (part number, y or tile coordinates), decoding in bands of rows on the workers straight into the channel planes |
+| `read.rs` | headers of every part, offset tables, chunk validation (part number, y or tile coordinates), each part's size checked and its planes charged to the read's budget before they are allocated, decoding in groups of bands of rows on the workers straight into the channel planes |
 | `write.rs` | validation, headers, offset tables, chunks built and compressed on the workers, written in increasing y |
 | `image.rs` | `Part::to_image` / `from_image` (RGB(A), Y(A) or a lone channel), sample conversions |
 | `parallel.rs` | an ordered map on the process's workers |
@@ -35,7 +35,7 @@ Not supported: deep data, mipmap and ripmap levels, subsampled channels (x/y sam
 | `cryptomatte/manifest.rs` | the bounded strict JSON manifest parser and writer, name and ID indexes |
 | `cryptomatte/builder.rs` | weighted samples per pixel and ID, ranking by weight, the layer's part and file (manifest embedded or sidecar) |
 
-A part's channels are planes over the data window. Reading splits every plane into bands (a scanline chunk, or a row of tiles), and each band's task owns its rows of every plane: chunks decode in parallel with no copy after. Writing does the inverse per chunk. PIZ and PXR24 follow OpenEXR's algorithms (BSD-3-Clause, [LICENSE-OpenEXR](../LICENSE-OpenEXR)); every other part follows the OpenEXR file layout documentation.
+A part's channels are planes over the data window. Reading splits every plane into bands (a scanline chunk, or a row of tiles), the bands into at most 256 groups, and each group's task owns its rows of every plane: chunks decode in parallel with no copy after, and what the groups hold stays small whatever bands and channels a file claims (a file of 4,096 channels in 40,000 bands once took 3.5 GB to say so). Each chunk polls the read's budget (`ReadOptions::budget`, the SDK's `ReadBudget`, the one thing of the SDK the codec takes besides the workers), and once one fails the groups after it stop, so the error is the first by position on any number of workers. Counts and sizes a header gives are checked against overflow. Writing does the inverse per chunk. PIZ and PXR24 follow OpenEXR's algorithms (BSD-3-Clause, [LICENSE-OpenEXR](../LICENSE-OpenEXR)); every other part follows the OpenEXR file layout documentation.
 
 ## Tests and oracles
 

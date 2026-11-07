@@ -1,32 +1,48 @@
 //! An OpenEXR file to one standard Image ([`read`]): every part's channels
 //! as layers over the parts' data windows joined (D4 of Studio's design).
+//! What the Image takes is checked before it is made: the joined window
+//! against the most pixels an Image of a file may have, every layer's tiles
+//! against the read's budget.
 use crate::exr::{self, ChannelSamples, Exr, Part, ReadOptions, Window};
 use crate::metadata;
 use crate::tiles::{Plane, tiles};
 use kinogaki_render_api::aov::{self, cryptomatte};
+use kinogaki_studio_api::format::ReadBudget;
+use kinogaki_studio_api::format::files::Named;
 use kinogaki_studio_api::geometry::image::{ColorTag, Encoding, Format, Image, Rect, Sample};
-use kinogaki_studio_api::{Diagnostic, Error, FileItem, Imported, Input, Reading, standard};
+use kinogaki_studio_api::{
+    Diagnostic, Error, FileItem, FormatOptions, Imported, Input, Reading, standard,
+};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-/// The most pixels a part may have (2²⁸).
+/// The most pixels a part, and the parts' joined window, may have (2²⁸).
 const MAX_PIXELS: u64 = 1 << 28;
 
 /// `input` as one item holding its Image, named after the file.
 pub(crate) fn read(input: &Input<'_>, reading: &Reading<'_>) -> Result<Imported, Error> {
     reading.check()?;
     let bytes = input.bytes()?;
-    let at = |e: exr::Error| Error::invalid(format!("{input}: {e}"));
     let options = ReadOptions {
         max_pixels: MAX_PIXELS,
+        budget: reading.budget.clone(),
     };
-    let file = exr::read(&bytes, &options).map_err(at)?;
+    let file = exr::read(&bytes, &options).map_err(|e| match e {
+        exr::Error::Cancelled => Error::cancelled(),
+        e => Error::invalid(format!("{input}: {e}")),
+    })?;
     drop(bytes);
     reading.check()?;
     let mut warnings = Vec::new();
-    let beside = input.path().and_then(Path::parent);
-    let image = image(&file, beside, &mut warnings)
-        .map_err(|e| Error::invalid(format!("{input}: {}", e.message())))?;
+    let named = Named::new(input, &FormatOptions::new(), reading);
+    let image = image(&file, &named, &reading.budget, &mut warnings).map_err(|e| {
+        match e.is_cancelled() {
+            true => e,
+            false => Error::invalid(format!("{input}: {}", e.message())),
+        }
+    })?;
+    warnings.extend(named.warnings());
     let name = (Path::new(input.name()).file_stem())
         .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
     Ok(Imported {
@@ -49,11 +65,12 @@ struct Gathered<'a> {
     part: usize,
 }
 
-/// `file` as one Image; a Cryptomatte sidecar manifest is read from
-/// `beside` (the file's folder) when there is one.
+/// `file` as one Image, its tiles charged to `budget`; a Cryptomatte
+/// sidecar manifest is read through `named`.
 fn image(
     file: &Exr,
-    beside: Option<&Path>,
+    named: &Named,
+    budget: &ReadBudget,
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Image, Error> {
     let first = file
@@ -71,8 +88,17 @@ fn image(
             y_max: a.y_max.max(b.y_max),
         })
         .unwrap_or(first.header.data_window);
+    // Parts far apart join into a window of more pixels than any of them.
+    let pixels = (joined.width() as u64).saturating_mul(joined.height() as u64);
+    if pixels > MAX_PIXELS {
+        return Err(Error::invalid(format_args!(
+            "the parts' data windows together span {} × {} pixels, over 2²⁸",
+            joined.width(),
+            joined.height()
+        )));
+    }
     let data = rect(joined)?;
-    let attributes = metadata::read(file, beside, warnings)?;
+    let attributes = metadata::read(file, named, warnings)?;
     let tagged = file.parts.iter().any(|p| tag(p).is_some());
     let mut builder = Image::builder(display)
         .data(data)
@@ -101,6 +127,7 @@ fn image(
             sample,
             encoding,
         };
+        budget.allocate(pixels * format.pixel_bytes() as u64)?;
         let planes: Vec<Plane<'_>> = (layer.channels.iter())
             .map(|c| Plane {
                 samples: c.samples,
@@ -146,6 +173,8 @@ fn is_cryptomatte(attributes: &kinogaki_studio_api::geometry::Attributes, name: 
 /// last).
 fn gather<'a>(file: &'a Exr, warnings: &mut Vec<Diagnostic>) -> Vec<Gathered<'a>> {
     let mut layers: Vec<Gathered<'a>> = Vec::new();
+    // Each layer's place in `layers`, and the channels it holds.
+    let mut found: HashMap<&str, (usize, HashSet<&str>)> = HashMap::new();
     let alone = file.parts.len() == 1;
     for (at, part) in file.parts.iter().enumerate() {
         let own = match alone {
@@ -162,19 +191,25 @@ fn gather<'a>(file: &'a Exr, warnings: &mut Vec<Diagnostic>) -> Vec<Gathered<'a>
                 samples: &channel.samples,
                 window: part.header.data_window,
             };
-            match layers.iter_mut().find(|l| l.name == layer) {
-                Some(found) if found.channels.iter().any(|c| c.name == name) => {
+            match found.get_mut(layer) {
+                Some((_, held)) if held.contains(name) => {
                     warnings.push(Diagnostic::warning(format!(
                         "channel {} is in two parts: the first is read",
                         channel.name
                     )));
                 }
-                Some(found) => found.channels.push(source),
-                None => layers.push(Gathered {
-                    name: layer.to_owned(),
-                    channels: vec![source],
-                    part: at,
-                }),
+                Some((index, held)) => {
+                    held.insert(name);
+                    layers[*index].channels.push(source);
+                }
+                None => {
+                    found.insert(layer, (layers.len(), HashSet::from([name])));
+                    layers.push(Gathered {
+                        name: layer.to_owned(),
+                        channels: vec![source],
+                        part: at,
+                    });
+                }
             }
         }
     }
@@ -207,7 +242,7 @@ fn gather<'a>(file: &'a Exr, warnings: &mut Vec<Diagnostic>) -> Vec<Gathered<'a>
             });
         }
     }
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     split.retain(|l| {
         let fresh = !l.channels.is_empty() && seen.insert(l.name.clone());
         if !fresh {

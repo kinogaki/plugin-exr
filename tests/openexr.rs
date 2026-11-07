@@ -265,7 +265,13 @@ fn bad_files_fail_cleanly() {
         Err(Error::Corrupt { .. })
     ));
     assert_eq!(
-        kinogaki_exr_format::exr::read(&data, &ReadOptions { max_pixels: 100 }),
+        kinogaki_exr_format::exr::read(
+            &data,
+            &ReadOptions {
+                max_pixels: 100,
+                ..ReadOptions::default()
+            }
+        ),
         Err(Error::TooLarge)
     );
     for name in [
@@ -299,6 +305,7 @@ fn bad_files_fail_cleanly() {
                 &mutated,
                 &ReadOptions {
                     max_pixels: 1 << 22,
+                    ..ReadOptions::default()
                 },
             );
         }

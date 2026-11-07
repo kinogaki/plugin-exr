@@ -373,7 +373,7 @@ fn a_cryptomatte_sidecar_is_read_beside_its_file_and_said_missing_in_memory() {
     let (held, warnings) = image(&Input::memory("sidecar_manifest.exr", &bytes));
     assert!(held.attributes().text(Domain::Detail, &key).is_none());
     assert!(
-        warnings.iter().any(|w| w.contains("on no disk")),
+        warnings.iter().any(|w| w.contains("held in memory")),
         "{warnings:?}"
     );
 }

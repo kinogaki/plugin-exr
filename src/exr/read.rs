@@ -1,14 +1,26 @@
 //! Reading: the version field and headers, the chunk offset tables, and
 //! each part's chunks decompressed on every processor into its planes.
 //!
-//! Work goes in bands of rows: a scanline chunk, or a row of tiles. Each
-//! band owns its rows of every channel plane, so bands decode in parallel
-//! straight into the planes.
+//! Work goes in bands of rows: a scanline chunk, or a row of tiles. Bands
+//! go in at most [`GROUPS`] groups, each owning its rows of every channel
+//! plane, so groups decode in parallel straight into the planes; a group's
+//! bands go in order, each chunk polling the read's budget, and once a
+//! chunk fails the groups after its own stop (the error is the first by
+//! position, on any number of workers).
+//!
+//! Nothing is allocated for a part before its size is checked: its pixels
+//! against the most a part may have, its planes against the read's budget.
 use crate::exr::compression::{self, Shape};
 use crate::exr::header::{self, DEEP, LONG_NAMES, MAGIC, MULTIPART, Parsed, Reader, TILED};
 use crate::exr::parallel;
 use crate::exr::{Channel, ChannelSamples, Error, Exr, Part, PartHeader, ReadOptions, SampleType};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// The most groups of bands a part's work goes in: what each group holds
+/// of every plane (a slice a channel) stays small whatever the bands and
+/// channels a file claims.
+const GROUPS: usize = 256;
 
 /// The parsed headers and where the offset tables start.
 struct Structure {
@@ -107,8 +119,10 @@ impl Layout {
         }
     }
 
-    fn chunks(&self) -> usize {
-        self.across * self.down
+    /// How many chunks the part has: refused when that overflows (a
+    /// window 2³² wide and tall in one-pixel tiles).
+    fn chunks(&self) -> Result<usize, Error> {
+        self.across.checked_mul(self.down).ok_or(Error::TooLarge)
     }
 }
 
@@ -126,7 +140,7 @@ pub fn read(data: &[u8], options: &ReadOptions) -> Result<Exr, Error> {
     let mut offsets = Vec::with_capacity(structure.parts.len());
     for parsed in &structure.parts {
         let layout = Layout::of(&parsed.part);
-        let count = layout.chunks();
+        let count = layout.chunks()?;
         if parsed.chunk_count.is_some_and(|c| c as usize != count) {
             return Err(Error::corrupt(
                 "chunkCount disagrees with the data window",
@@ -159,17 +173,18 @@ fn read_part(
     options: &ReadOptions,
 ) -> Result<Part, Error> {
     let layout = Layout::of(&part);
-    let pixels = layout.width as u64 * layout.height as u64;
-    let bytes: u64 = part
-        .channels
-        .iter()
+    let pixels = (layout.width as u64).saturating_mul(layout.height as u64);
+    let bytes = (part.channels.iter())
         .map(|c| c.sample_type.bytes() as u64)
         .sum::<u64>()
-        * pixels;
+        .saturating_mul(pixels);
     if pixels > options.max_pixels || bytes > options.max_pixels.saturating_mul(64) {
         return Err(Error::TooLarge);
     }
     let types: Vec<SampleType> = part.channels.iter().map(|c| c.sample_type).collect();
+    for t in &types {
+        options.budget.allocate(pixels * t.bytes() as u64)?;
+    }
     let mut planes: Vec<ChannelSamples> = types
         .iter()
         .map(|t| match t {
@@ -179,47 +194,59 @@ fn read_part(
         })
         .collect();
     {
-        // Each band's rows of every plane.
+        // Each group's rows of every plane: `per` bands of `band_len`
+        // samples.
         let band_len = layout.width * layout.chunk_height;
-        let mut bands: Vec<Vec<Rows>> = (0..layout.down)
+        let per = layout.down.div_ceil(GROUPS).max(1);
+        let groups = layout.down.div_ceil(per);
+        let mut rows: Vec<Vec<Rows>> = (0..groups)
             .map(|_| Vec::with_capacity(types.len()))
             .collect();
         for plane in &mut planes {
             match plane {
                 ChannelSamples::U32(v) => v
-                    .chunks_mut(band_len)
-                    .zip(&mut bands)
-                    .for_each(|(r, b)| b.push(Rows::U32(r))),
+                    .chunks_mut(band_len * per)
+                    .zip(&mut rows)
+                    .for_each(|(r, g)| g.push(Rows::U32(r))),
                 ChannelSamples::F16(v) => v
-                    .chunks_mut(band_len)
-                    .zip(&mut bands)
-                    .for_each(|(r, b)| b.push(Rows::F16(r))),
+                    .chunks_mut(band_len * per)
+                    .zip(&mut rows)
+                    .for_each(|(r, g)| g.push(Rows::F16(r))),
                 ChannelSamples::F32(v) => v
-                    .chunks_mut(band_len)
-                    .zip(&mut bands)
-                    .for_each(|(r, b)| b.push(Rows::F32(r))),
+                    .chunks_mut(band_len * per)
+                    .zip(&mut rows)
+                    .for_each(|(r, g)| g.push(Rows::F32(r))),
             }
         }
         let slots: Vec<Mutex<Option<Vec<Rows>>>> =
-            bands.into_iter().map(|b| Mutex::new(Some(b))).collect();
+            rows.into_iter().map(|g| Mutex::new(Some(g))).collect();
         let header = &part.header;
-        parallel::map(layout.down, |band| {
-            let mut rows = slots[band]
+        // The first group a chunk failed in.
+        let failed = AtomicUsize::new(usize::MAX);
+        parallel::map(groups, |group| {
+            let mut rows = slots[group]
                 .lock()
-                .expect("band")
+                .expect("group")
                 .take()
-                .expect("each band once");
-            for column in 0..layout.across {
-                read_chunk(
-                    data,
-                    header,
-                    &layout,
-                    &types,
-                    offsets,
-                    multipart,
-                    (column, band),
-                    &mut rows,
-                )?;
+                .expect("each group once");
+            let first = group * per;
+            for band in first..(first + per).min(layout.down) {
+                for column in 0..layout.across {
+                    if failed.load(Ordering::Relaxed) < group {
+                        return Ok(());
+                    }
+                    let read = options.budget.check().map_err(Error::from).and_then(|()| {
+                        let at = (band - first) * band_len;
+                        let chunk = (column, band);
+                        read_chunk(
+                            data, header, &layout, &types, offsets, multipart, chunk, at, &mut rows,
+                        )
+                    });
+                    if read.is_err() {
+                        failed.fetch_min(group, Ordering::Relaxed);
+                        return read;
+                    }
+                }
             }
             Ok::<(), Error>(())
         })?;
@@ -240,7 +267,8 @@ fn read_part(
     })
 }
 
-/// Reads chunk (`column`, `band`) into `rows`, the band's plane rows.
+/// Reads chunk (`column`, `band`) into `rows`, its group's plane rows,
+/// the band's first sample at `at` in them.
 #[allow(clippy::too_many_arguments)]
 fn read_chunk(
     data: &[u8],
@@ -250,6 +278,7 @@ fn read_chunk(
     offsets: &[u64],
     multipart: Option<u32>,
     (column, band): (usize, usize),
+    at: usize,
     rows: &mut [Rows],
 ) -> Result<(), Error> {
     let index = band * layout.across + column;
@@ -284,7 +313,7 @@ fn read_chunk(
     if size < 0 {
         return Err(Error::corrupt("negative chunk size", r.pos));
     }
-    let at = r.pos;
+    let start = r.pos;
     let packed = r.take(size as usize)?;
     let x0 = column * layout.chunk_width;
     let width = layout.chunk_width.min(layout.width - x0);
@@ -296,11 +325,11 @@ fn read_chunk(
         height,
         types,
     };
-    let raw = compression::decompress(header.compression, &shape, packed, at)?;
+    let raw = compression::decompress(header.compression, &shape, packed, start)?;
     // Scatter: per scanline, per channel, `width` little-endian samples.
     let mut source = raw.as_slice();
     for y in 0..height {
-        let start = y * layout.width + x0;
+        let start = at + y * layout.width + x0;
         for plane in rows.iter_mut() {
             match plane {
                 Rows::U32(p) => {
