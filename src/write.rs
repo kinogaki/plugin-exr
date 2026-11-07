@@ -38,7 +38,7 @@ pub(crate) struct Writer;
 
 impl FormatWriter for Writer {
     fn accepts(&self) -> &[DataTypeId] {
-        std::slice::from_ref(&*IMAGE)
+        IMAGE
     }
     fn options(&self) -> FormatOptions {
         FormatOptions::from([
