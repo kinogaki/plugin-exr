@@ -10,13 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// The most attributes a file's metadata keeps: each one added copies the
-/// table, so a header of a hundred thousand would take minutes, and no
-/// renderer writes a thousand.
-const MOST: usize = 1024;
-
-/// Every attribute of `file`'s parts as Detail attributes, up to [`MOST`]:
-/// the first part's by their names, a later part's by its name too unless
+/// Every attribute of `file`'s parts as Detail attributes: the first part's by their names, a later part's by its name too unless
 /// an earlier one holds another value there, then as `<part>/<name>`. A
 /// Cryptomatte manifest kept in a sidecar file (`manif_file`) is read
 /// through `named` as its `manifest`, each file once and 64 MiB of them in
@@ -28,7 +22,6 @@ pub(crate) fn read(
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Attributes, Error> {
     let mut held = Attributes::new();
-    let mut kept = 0;
     let mut left_out: Vec<String> = Vec::new();
     let mut sidecars = Sidecars::default();
     for part in &file.parts {
@@ -46,16 +39,11 @@ pub(crate) fn read(
                     raw.name
                 ),
             };
-            if kept == MOST {
+            if held.set(Domain::Detail, &name, value).is_err() {
                 left_out.push(raw.name.clone());
-                continue;
-            }
-            match held.with(Domain::Detail, &name, value) {
-                Ok(with) => (held, kept) = (with, kept + 1),
-                Err(_) => left_out.push(raw.name.clone()),
             }
         }
-        held = sidecars.read(&part.header, held, named, warnings)?;
+        sidecars.read(&part.header, &mut held, named, warnings)?;
     }
     if !left_out.is_empty() {
         let shown = left_out.len().min(16);
@@ -86,10 +74,10 @@ impl Sidecars {
     fn read(
         &mut self,
         header: &Header,
-        mut held: Attributes,
+        held: &mut Attributes,
         named: &Named,
         warnings: &mut Vec<Diagnostic>,
-    ) -> Result<Attributes, Error> {
+    ) -> Result<(), Error> {
         for raw in &header.attributes {
             let Some(key) = raw.name.strip_suffix("/manif_file") else {
                 continue;
@@ -114,9 +102,9 @@ impl Sidecars {
             };
             self.kept += text.len() as u64;
             let text = Attribute::text(Text::from_strs([&*text]));
-            held = held.with(Domain::Detail, &manifest, text)?;
+            held.set(Domain::Detail, &manifest, text)?;
         }
-        Ok(held)
+        Ok(())
     }
 
     /// The text of sidecar `file`, a relative `.json` path beside the file

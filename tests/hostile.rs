@@ -202,8 +202,14 @@ fn a_hundred_thousand_attributes_read_in_linear_time() {
     let chunk = [0, 0, 0, 0, 2, 0, 0, 0, 0, 0x3C];
     let bytes = scanline(1, ([0, 0], [0, 0]), 0, &extra, 1, &chunk);
     let read = read_bytes(&bytes, ReadLimits::default()).unwrap();
-    let said = &read.warnings[0].message;
-    assert!(said.ends_with(" and 98960 more"), "{said}");
+    assert!(read.warnings.is_empty(), "{:?}", read.warnings);
+    let image = kinogaki_studio_api::standard::image().get(read.items[0].data.as_ref().unwrap());
+    let kept = image
+        .unwrap()
+        .attributes()
+        .iter()
+        .filter(|(_, n, _)| n.starts_with('a'));
+    assert_eq!(kept.count(), 100_000);
 }
 
 #[test]
