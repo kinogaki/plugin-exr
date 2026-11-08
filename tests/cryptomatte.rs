@@ -149,7 +149,6 @@ fn files_and_sidecars_round_trip() {
         kinogaki_exr_format::exr::cryptomatte::Manifest::parse(&json).unwrap(),
         *with.manifest()
     );
-    std::fs::remove_dir_all(&directory).unwrap();
 }
 
 #[test]

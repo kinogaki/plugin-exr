@@ -15,6 +15,7 @@ use kinogaki_studio_api::{
     FileFormat, FileItem, Imported, Input, Purpose, Reading, Units, Value, Writing, standard,
 };
 use kinogaki_studio_api_testing::Unconverted;
+use kinogaki_studio_api_testing::format::Scratch;
 use kinogaki_studio_api_testing::workers;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,9 +42,8 @@ fn written(image: &Image, parts: &str) -> Vec<u8> {
     let writer = OpenExr.writer().unwrap();
     let mut options = writer.options();
     options.insert("parts".into(), Value::Choice(parts.into()));
-    let dir = std::env::temp_dir().join(format!("kinogaki-exr-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(format!("{parts}-{:?}.exr", std::thread::current().id()));
+    let dir = Scratch::new("exr-format");
+    let path = dir.join(format!("{parts}.exr"));
     let colors = Unconverted;
     let item = FileItem::top("frame", standard::image().wrap(image.clone()));
     let warnings = writer
@@ -55,9 +55,7 @@ fn written(image: &Image, parts: &str) -> Vec<u8> {
         )
         .unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
-    let bytes = std::fs::read(&path).unwrap();
-    std::fs::remove_file(&path).unwrap();
-    bytes
+    std::fs::read(&path).unwrap()
 }
 
 /// FNV-1a, 64 bits: what the oracle hashes samples with.
