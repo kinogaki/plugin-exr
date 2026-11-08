@@ -5,11 +5,10 @@ use crate::exr::{
 };
 use crate::{metadata, tiles};
 use kinogaki_render_api::aov::{self, cryptomatte};
+use kinogaki_studio_api::color::ColorService;
 use kinogaki_studio_api::format::options;
 use kinogaki_studio_api::geometry::Domain;
-use kinogaki_studio_api::geometry::image::{
-    ColorTag, Encoding, Image, Rect, metadata::CHROMATICITIES,
-};
+use kinogaki_studio_api::geometry::image::{ColorTag, Encoding, Image, Rect};
 use kinogaki_studio_api::params::{Parameter, Schema};
 use kinogaki_studio_api::{
     DataTypeId, Diagnostic, Error, FileItem, FormatOptions, FormatWriter, Value, Writing, standard,
@@ -87,7 +86,8 @@ impl FormatWriter for Writer {
             )));
         }
         let at = |e: exr::Error| Error::invalid(format!("{}: {e}", path.display()));
-        let mut file = file(image, compression, one, &mut warnings).map_err(at)?;
+        let mut file =
+            file(image, (compression, one), writing.colors, &mut warnings).map_err(at)?;
         metadata::write(image.attributes(), &mut file.parts[0].header, &mut warnings);
         writing.check()?;
         let bytes = exr::write(&file, &Default::default()).map_err(at)?;
@@ -101,11 +101,11 @@ impl FormatWriter for Writer {
 
 /// `image` as an EXR's parts: a part a layer (a Cryptomatte output's
 /// preview and ranks one part), or `one` part of them all, each
-/// `compression`.
+/// `compression`; a named space's primaries as `colors` gives them.
 fn file(
     image: &Image,
-    compression: Compression,
-    one: bool,
+    (compression, one): (Compression, bool),
+    colors: &dyn ColorService,
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Exr, exr::Error> {
     let header = || {
@@ -149,7 +149,7 @@ fn file(
                 }
             }
             None if starts || name.is_empty() => {
-                tag(image, layer.format(), &mut part.header, warnings)
+                tag(layer.format(), colors, &mut part.header, warnings)
             }
             None => {}
         }
@@ -181,23 +181,24 @@ fn text<'a>(image: &'a Image, name: &str) -> Option<&'a str> {
 }
 
 /// `header` tagged as a color layer of `format` says: `colorspace` its
-/// space, `chromaticities` its primaries or the image's; a profile an EXR
-/// can't hold is said.
+/// space and `chromaticities` the space's primaries (as `colors` gives
+/// them), or `chromaticities` its primaries alone; a profile an EXR can't
+/// hold is said.
 fn tag(
-    image: &Image,
     format: &kinogaki_studio_api::geometry::image::Format,
+    colors: &dyn ColorService,
     header: &mut Header,
     warnings: &mut Vec<Diagnostic>,
 ) {
     let Encoding::Color { tag, .. } = &format.encoding else {
         return;
     };
-    let mut primaries = image
-        .attributes()
-        .tuples::<[f32; 8]>(Domain::Detail, CHROMATICITIES)
-        .and_then(|xy| xy.first().copied());
+    let mut primaries = None;
     match tag {
-        ColorTag::Space(space) => header.set_string("colorspace", space),
+        ColorTag::Space(space) => {
+            header.set_string("colorspace", space);
+            primaries = colors.primaries(space);
+        }
         ColorTag::Primaries(xy) => primaries = Some(*xy),
         ColorTag::Icc(_) => warnings.push(Diagnostic::warning(
             "an EXR holds no ICC profile: its colors are written untagged",

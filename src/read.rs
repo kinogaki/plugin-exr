@@ -92,9 +92,8 @@ fn image(
     let data = rect(joined)?;
     let attributes = metadata::read(file, named, warnings)?;
     let tagged = file.parts.iter().any(|p| tag(p).is_some());
-    let mut builder = Image::builder(display)
-        .data(data)
-        .aspect(f64::from(first.header.pixel_aspect_ratio));
+    let mut builder =
+        Image::framed(display, data).aspect(f64::from(first.header.pixel_aspect_ratio));
     for layer in gather(file, warnings) {
         let part = &file.parts[layer.part];
         let sample = sample(&layer, warnings);

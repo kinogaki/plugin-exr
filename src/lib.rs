@@ -11,7 +11,7 @@
 //!   A layer is color when its part says its space (`colorspace`, else
 //!   `chromaticities`, its tag), or, in a file saying none, when its
 //!   channels are `R G B A` or `Y`; Cryptomatte ranks and integers are
-//!   data. Every attribute is the Image's metadata (a later part's
+//!   data. Every other attribute is the Image's metadata (a later part's
 //!   differing one under `<part>/<name>`, a name an attribute's can't be
 //!   escaped), and a Cryptomatte sidecar manifest is read in as its
 //!   `manifest`.
@@ -19,8 +19,9 @@
 //!   output, a Cryptomatte output's preview and ranks one part with its
 //!   four keys, or one part of `<layer>.<name>` channels (`one`); every
 //!   part compressed as `compression` says (ZIP by default). A color
-//!   layer's part carries its tag (`colorspace`, the Image's
-//!   `chromaticities`), the first part the rest of the metadata, each
+//!   layer's part carries its tag (`colorspace` and the space's
+//!   `chromaticities` as the host's color service gives them, or the
+//!   primaries alone), the first part the rest of the metadata, each
 //!   attribute under the name it was read by.
 pub mod exr;
 mod metadata;

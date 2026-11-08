@@ -3,7 +3,7 @@
 use crate::exr::cryptomatte::{MAX_SIDECAR, check_sidecar};
 use crate::exr::{Attribute as Raw, Exr, Header};
 use kinogaki_studio_api::format::files::Named;
-use kinogaki_studio_api::geometry::image::metadata::{CHROMATICITIES, PIXELATED};
+use kinogaki_studio_api::geometry::image::metadata::PIXELATED;
 use kinogaki_studio_api::geometry::{
     Attribute, Attributes, Domain, Meaning, Text, Tuple, check_name,
 };
@@ -12,8 +12,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Every attribute of `file`'s parts as Detail attributes: the first part's by their names, a later part's by its name too unless
-/// an earlier one holds another value there, then as `<part>/<name>`; a
+/// The header attributes a part's color layers' tag holds
+/// (`ColorTag`), never its metadata.
+const TAGS: [&str; 2] = ["colorspace", "chromaticities"];
+
+/// Every attribute of `file`'s parts but its colors' tag ([`TAGS`]) as
+/// Detail attributes: the first part's by their names, a later part's by
+/// its name too unless an earlier one holds another value there, then as
+/// `<part>/<name>`; a
 /// name an attribute's can't be held as [`held_name`] says. A
 /// Cryptomatte manifest kept in a sidecar file (`manif_file`) is read
 /// through `named` as its `manifest`, each file once and 64 MiB of them in
@@ -29,6 +35,9 @@ pub(crate) fn read(
     let mut sidecars = Sidecars::default();
     for part in &file.parts {
         for raw in &part.header.attributes {
+            if TAGS.contains(&raw.name.as_str()) {
+                continue;
+            }
             let Some(value) = value(raw) else {
                 left_out.push(raw.name.clone());
                 continue;
@@ -275,14 +284,13 @@ where
 }
 
 /// `metadata`'s attributes into `header`, as the kind of EXR attribute their
-/// type is: every one but the standard names a writer handles itself (the
-/// colors' `chromaticities`, Cryptomatte's keys) and those no EXR attribute
-/// holds (`pixelated`), said by name.
+/// type is: every one but those a writer handles itself (a color layer's
+/// tag, Cryptomatte's keys) and those no EXR attribute holds (`pixelated`),
+/// said by name.
 pub(crate) fn write(metadata: &Attributes, header: &mut Header, warnings: &mut Vec<Diagnostic>) {
     let mut left_out = Vec::new();
     for (domain, name, attribute) in metadata.iter() {
-        let handled =
-            name == CHROMATICITIES || name == PIXELATED || name.starts_with("cryptomatte/");
+        let handled = TAGS.contains(&name) || name == PIXELATED || name.starts_with("cryptomatte/");
         if domain != Domain::Detail || handled {
             continue;
         }

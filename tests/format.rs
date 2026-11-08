@@ -8,10 +8,9 @@ use kinogaki_exr_format::exr::{
     self, Channel, ChannelSamples, Compression, Exr, Header, Part, Window,
 };
 use kinogaki_render_api::aov::cryptomatte;
-use kinogaki_studio_api::geometry::image::{
-    ColorTag, Encoding, Format, Image, Rect, Sample, metadata,
-};
-use kinogaki_studio_api::geometry::{Attribute, Domain, Meaning, Text};
+use kinogaki_studio_api::color::ColorService;
+use kinogaki_studio_api::geometry::image::{ColorTag, Encoding, Format, Image, Rect, Sample};
+use kinogaki_studio_api::geometry::{Attribute, Domain, Text};
 use kinogaki_studio_api::{
     FileFormat, FileItem, Imported, Input, Purpose, Reading, Units, Value, Writing, standard,
 };
@@ -134,9 +133,9 @@ fn openexr_images_read_as_openexr_reads_them() {
 }
 
 /// A final frame's Image as a host tags it for a file: a beauty in ACEScg
-/// with its chromaticities, an albedo, depth, occlusion and object ids as
-/// data, and a
-/// Cryptomatte output of two rank sets with its manifest.
+/// (whose chromaticities the color service gives), an albedo, depth,
+/// occlusion and object ids as data, and a Cryptomatte output of two rank
+/// sets with its manifest.
 fn frame() -> Image {
     let window = Rect::new([0, 0], [3, 2]).unwrap();
     let pixels = 6;
@@ -167,16 +166,7 @@ fn frame() -> Image {
     let ids: Vec<u8> = (0..pixels as u32)
         .flat_map(|i| (i * 7 + 1).to_ne_bytes())
         .collect();
-    let xy = Attribute::tuples(
-        vec![[
-            0.713f32, 0.293, 0.165, 0.830, 0.128, 0.044, 0.32168, 0.33767,
-        ]],
-        Meaning::None,
-    )
-    .unwrap();
-    let mut attributes = kinogaki_studio_api::geometry::Attributes::new()
-        .with(Domain::Detail, metadata::CHROMATICITIES, xy)
-        .unwrap();
+    let mut attributes = kinogaki_studio_api::geometry::Attributes::new();
     for (key, value) in [
         ("name", "CryptoObject"),
         ("hash", "MurmurHash3_32"),
@@ -247,7 +237,17 @@ fn a_frame_writes_a_part_an_output_and_reads_back_as_itself() {
         ]
     );
     assert_eq!(file.parts[0].header.string("colorspace"), Some("ACEScg"));
-    assert!(file.parts[0].header.attribute("chromaticities").is_some());
+    let xy = file.parts[0]
+        .header
+        .attribute("chromaticities")
+        .expect("its primaries");
+    let ap1 = Unconverted.primaries("ACEScg").expect("ACEScg's");
+    assert_eq!(
+        xy.value,
+        ap1.iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<u8>>()
+    );
     assert_eq!(file.parts[0].header.string("owner"), Some("kept"));
     // Data parts say no space: read back, a lone `Y` stays data.
     assert_eq!(file.parts[2].header.string("colorspace"), None);
@@ -260,7 +260,7 @@ fn a_frame_writes_a_part_an_output_and_reads_back_as_itself() {
     let (back, warnings) = image(&Input::memory("frame.exr", &bytes));
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(back.layers(), frame.layers());
-    for name in [metadata::CHROMATICITIES, "owner", key.as_str()] {
+    for name in ["owner", key.as_str()] {
         assert_eq!(
             back.attributes().get(Domain::Detail, name),
             frame.attributes().get(Domain::Detail, name),
