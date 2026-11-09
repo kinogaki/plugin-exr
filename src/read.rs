@@ -41,6 +41,7 @@ pub(crate) fn read(input: &Input<'_>, reading: &Reading<'_>) -> Result<Imported,
     Ok(Imported {
         items: vec![FileItem::top(name, standard::image().wrap(image))],
         warnings,
+        ..Imported::default()
     })
 }
 
